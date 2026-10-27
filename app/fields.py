@@ -6,6 +6,8 @@
 2. 需求中要求“按负责人筛选”，原表没有该列，因此系统补充 owner 字段（可留空）。
 3. 导入任意新表格时，未知列会自动注册为自定义字段（存 extra_json），
    并自动生成列表列与表单控件 —— 无需改代码。
+4. 列表采用固定排序（截止日期升序，空日期排最后），不再提供手动排序；
+   列表中的字段支持直接点击进行内联编辑（editable 标记）。
 """
 from __future__ import annotations
 
@@ -14,15 +16,17 @@ from typing import Any, Dict, List
 from .db import list_custom_fields
 
 # ---------------------------------------------------------------- 基础字段
+# editable: 是否支持在列表里点击单元格直接编辑
 BASE_FIELDS: List[Dict[str, Any]] = [
     {
         "key": "name",
         "label": "任务名称",
         "type": "text",
         "required": True,
+        "maxlength": 200,
         "inList": True,
         "filter": True,
-        "sort": True,
+        "editable": True,
         "width": 280,
         "placeholder": "请输入任务名称",
         "origin": "表格列",
@@ -32,9 +36,10 @@ BASE_FIELDS: List[Dict[str, Any]] = [
         "label": "负责人",
         "type": "text",
         "required": False,
+        "maxlength": 50,
         "inList": True,
         "filter": True,
-        "sort": True,
+        "editable": True,
         "width": 110,
         "placeholder": "原表无此列，可按需要填写",
         "origin": "系统补充",
@@ -47,7 +52,7 @@ BASE_FIELDS: List[Dict[str, Any]] = [
         "required": False,
         "inList": True,
         "filter": True,
-        "sort": True,
+        "editable": True,
         "width": 130,
         "placeholder": "请选择优先级象限",
         "origin": "表格列",
@@ -61,7 +66,7 @@ BASE_FIELDS: List[Dict[str, Any]] = [
         "required": False,
         "inList": True,
         "filter": True,
-        "sort": True,
+        "editable": True,
         "width": 110,
         "placeholder": "请选择状态",
         "origin": "表格列",
@@ -73,7 +78,7 @@ BASE_FIELDS: List[Dict[str, Any]] = [
         "required": False,
         "inList": True,
         "filter": True,
-        "sort": True,
+        "editable": True,
         "width": 150,
         "origin": "表格列",
     },
@@ -84,7 +89,7 @@ BASE_FIELDS: List[Dict[str, Any]] = [
         "required": False,
         "inList": True,
         "filter": True,
-        "sort": True,
+        "editable": True,
         "width": 150,
         "origin": "表格列",
         "hint": "截止日期，用于日历展示与到期提醒",
@@ -94,9 +99,10 @@ BASE_FIELDS: List[Dict[str, Any]] = [
         "label": "备注",
         "type": "textarea",
         "required": False,
+        "maxlength": 2000,
         "inList": True,
         "filter": False,
-        "sort": False,
+        "editable": True,
         "width": 240,
         "placeholder": "进展备注、说明等",
         "origin": "表格列",
@@ -177,6 +183,13 @@ def match_field(header: str) -> str:
     return ""
 
 
+def field_by_key(key: str) -> Dict[str, Any] | None:
+    for f in BASE_FIELDS:
+        if f["key"] == key:
+            return f
+    return None
+
+
 def base_field_by_label(label: str):
     for f in BASE_FIELDS:
         if f["label"] == label:
@@ -201,7 +214,7 @@ def get_registry() -> List[Dict[str, Any]]:
                 "required": False,
                 "inList": True,
                 "filter": False,
-                "sort": False,
+                "editable": True,
                 "width": 160,
                 "origin": "导入新增",
                 "custom": True,
@@ -214,5 +227,5 @@ def list_fields() -> List[Dict[str, Any]]:
     return [f for f in get_registry() if f.get("inList")]
 
 
-def sortable_keys() -> List[str]:
-    return [f["key"] for f in get_registry() if f.get("sort")]
+def editable_fields() -> List[Dict[str, Any]]:
+    return [f for f in get_registry() if f.get("editable") and f.get("inList")]

@@ -50,18 +50,16 @@ def _filter_params(
     overdue_only: bool = False,
     due_soon_only: bool = False,
     remind_only: bool = False,
-    sort: str = "due_date",
-    order: str = "asc",
     page: int = 1,
     page_size: int = 0,
 ) -> Dict[str, Any]:
+    """列表筛选参数。排序由服务端固定（截止日期升序），不再支持手动排序。"""
     return {
         "q": q, "owner": owner, "status": status, "priority": priority,
         "start_from": start_from, "start_to": start_to,
         "due_from": due_from, "due_to": due_to,
         "overdue_only": overdue_only, "due_soon_only": due_soon_only,
-        "remind_only": remind_only, "sort": sort, "order": order,
-        "page": page, "page_size": page_size,
+        "remind_only": remind_only, "page": page, "page_size": page_size,
     }
 
 
@@ -72,7 +70,7 @@ def api_fields():
     return {
         "fields": registry,
         "list_fields": [f for f in registry if f.get("inList")],
-        "sortable": [f["key"] for f in registry if f.get("sort")],
+        "editable_fields": [f["key"] for f in registry if f.get("editable") and f.get("inList")],
         "lead_options": config.LEAD_OPTIONS,
     }
 
@@ -101,8 +99,6 @@ def api_list_tasks(
     overdue_only: bool = False,
     due_soon_only: bool = False,
     remind_only: bool = False,
-    sort: str = "due_date",
-    order: str = "asc",
     page: int = 1,
     page_size: int = 0,
 ):
@@ -120,16 +116,20 @@ def api_get_task(task_id: int):
 
 @app.post("/api/tasks")
 async def api_create_task(payload: Dict[str, Any]):
-    if not str(payload.get("name", "")).strip():
-        raise HTTPException(400, "任务名称不能为空")
-    task = crud.create_task(payload)
+    try:
+        task = crud.create_task(payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     _refresh_ics()
     return task
 
 
 @app.put("/api/tasks/{task_id}")
 async def api_update_task(task_id: int, payload: Dict[str, Any]):
-    task = crud.update_task(task_id, payload)
+    try:
+        task = crud.update_task(task_id, payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     if not task:
         raise HTTPException(404, "任务不存在")
     _refresh_ics()
@@ -221,7 +221,6 @@ def api_export(
         "q": q, "owner": owner, "status": status, "priority": priority,
         "start_from": start_from, "start_to": start_to,
         "due_from": due_from, "due_to": due_to, "overdue_only": overdue_only,
-        "sort": "due_date", "order": "asc",
     }
     tasks = crud.list_all(params)
     fmt = (format or "xlsx").lower()

@@ -121,22 +121,16 @@ def _build_where(params: Dict[str, Any]) -> Tuple[str, List[Any]]:
     return (" WHERE " + " AND ".join(clauses)) if clauses else "", args
 
 
-SORTABLE = {
-    "name", "owner", "priority", "status", "start_date", "due_date",
-    "created_at", "updated_at", "id", "remark",
-}
+# 列表采用固定排序：截止日期升序，无截止日期的排在最后，同日期按创建时间倒序
+FIXED_ORDER = (
+    "ORDER BY CASE WHEN due_date IS NULL OR due_date='' THEN 1 ELSE 0 END, "
+    "due_date ASC, created_at DESC"
+)
 
 
 def list_tasks(params: Dict[str, Any]) -> Dict[str, Any]:
     settings = config.load_settings()
     where, args = _build_where(params)
-
-    sort = params.get("sort") or "due_date"
-    if sort not in SORTABLE:
-        sort = "due_date"
-    order = "DESC" if str(params.get("order", "asc")).lower() == "desc" else "ASC"
-    # 空值恒排在最后，避免列表头部一片空白
-    order_sql = f"ORDER BY CASE WHEN {sort} IS NULL OR {sort}='' THEN 1 ELSE 0 END, {sort} {order}"
 
     page = max(int(params.get("page") or 1), 1)
     page_size = int(params.get("page_size") or settings.get("page_size") or 20)
@@ -146,7 +140,7 @@ def list_tasks(params: Dict[str, Any]) -> Dict[str, Any]:
     with db.get_conn() as conn:
         total = conn.execute(f"SELECT COUNT(*) AS c FROM tasks{where}", args).fetchone()["c"]
         rows = conn.execute(
-            f"SELECT * FROM tasks{where} {order_sql} LIMIT ? OFFSET ?",
+            f"SELECT * FROM tasks{where} {FIXED_ORDER} LIMIT ? OFFSET ?",
             args + [page_size, (page - 1) * page_size],
         ).fetchall()
 
@@ -190,6 +184,22 @@ def _split_payload(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, A
     return core, extra
 
 
+def validate_task_values(
+    name: str, owner: str, remark: str, start_date: str, due_date: str
+) -> None:
+    """基础校验（前端会先校验一次，这里做兜底）。失败抛出 ValueError。"""
+    if not str(name or "").strip():
+        raise ValueError("任务名称不能为空")
+    if len(str(name).strip()) > 200:
+        raise ValueError("任务名称不能超过 200 个字")
+    if len(str(owner or "")) > 50:
+        raise ValueError("负责人不能超过 50 个字")
+    if len(str(remark or "")) > 2000:
+        raise ValueError("备注不能超过 2000 个字")
+    if start_date and due_date and start_date[:10] > due_date[:10]:
+        raise ValueError("开始时间不能晚于结束时间")
+
+
 def create_task(payload: Dict[str, Any]) -> Dict[str, Any]:
     core, extra = _split_payload(payload)
     now = now_str()
@@ -209,6 +219,10 @@ def create_task(payload: Dict[str, Any]) -> Dict[str, Any]:
         "created_at": now,
         "updated_at": now,
     }
+    validate_task_values(
+        record["name"], record["owner"], record["remark"],
+        record["start_date"], record["due_date"],
+    )
     cols = ",".join(record.keys())
     marks = ",".join("?" * len(record))
     with db._WRITE_LOCK, db.get_conn() as conn:
@@ -253,6 +267,14 @@ def update_task(task_id: int, payload: Dict[str, Any]) -> Optional[Dict[str, Any
 
     if not fields:
         return get_task(task_id)
+
+    validate_task_values(
+        fields.get("name", row["name"]),
+        fields.get("owner", row["owner"]),
+        fields.get("remark", row["remark"]),
+        fields.get("start_date", row["start_date"]),
+        fields.get("due_date", row["due_date"]),
+    )
 
     fields["updated_at"] = now_str()
     set_sql = ",".join(f"{k}=?" for k in fields)

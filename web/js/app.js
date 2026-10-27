@@ -3,7 +3,7 @@ const App = (() => {
   const state = {
     fields: [],
     listFields: [],
-    sortable: [],
+    editableKeys: [],   // 支持单元格内联编辑的字段
     leadOptions: [],
     options: { owner: [], status: [], priority: [] },
     settings: {},
@@ -11,9 +11,8 @@ const App = (() => {
     pageSize: 20,
     total: 0,
     pageCount: 1,
-    sort: 'due_date',
-    order: 'asc',
-    editingId: null,
+    editingId: null,     // 弹窗编辑中的任务 id
+    inlineEditing: null, // 正在内联编辑的单元格：{ id, key, el }
     seenReminders: new Set(),
     lastRemindKey: '',
   };
@@ -68,8 +67,6 @@ const App = (() => {
       due_from: $('#f-due-from').value,
       due_to: $('#f-due-to').value,
       overdue_only: $('#f-overdue').checked,
-      sort: state.sort,
-      order: state.order,
       page: state.page,
       page_size: state.pageSize,
     };
@@ -81,24 +78,12 @@ const App = (() => {
     const ths = [
       '<th class="col-check"><input type="checkbox" id="check-all" title="全选" /></th>',
       ...cols.map((f) => {
-        const sortable = f.sort ? 'sortable' : '';
-        const arrow = state.sort === f.key ? `<span class="arrow">${state.order === 'asc' ? '↑' : '↓'}</span>` : '';
-        return `<th class="${sortable}" data-key="${f.key}" style="min-width:${f.width || 110}px">${escapeHtml(f.label)}${arrow}</th>`;
+        const editable = state.editableKeys.includes(f.key) ? ' title="点击单元格可编辑"' : '';
+        return `<th data-key="${f.key}"${editable} style="min-width:${f.width || 110}px">${escapeHtml(f.label)}</th>`;
       }),
       '<th style="width:120px;text-align:right">操作</th>',
     ];
     document.querySelector('#task-table thead').innerHTML = `<tr>${ths.join('')}</tr>`;
-
-    document.querySelectorAll('#task-table th.sortable').forEach((th) => {
-      th.addEventListener('click', () => {
-        const key = th.dataset.key;
-        if (state.sort === key) state.order = state.order === 'asc' ? 'desc' : 'asc';
-        else { state.sort = key; state.order = 'asc'; }
-        state.page = 1;
-        renderHead();
-        loadList();
-      });
-    });
 
     const checkAll = document.getElementById('check-all');
     if (checkAll) {
@@ -108,6 +93,15 @@ const App = (() => {
     }
   }
 
+  /* ---------------- 单元格 ---------------- */
+  // 单元格属性：可编辑字段带 .editable-cell，供点击/双击进入编辑态
+  function tdAttrs(field, task, extraClass = '') {
+    const cls = [extraClass, state.editableKeys.includes(field.key) ? 'editable-cell' : '']
+      .filter(Boolean).join(' ');
+    const base = `data-key="${field.key}" data-id="${task.id}"${cls ? ` class="${cls}"` : ''}`;
+    return state.editableKeys.includes(field.key) ? `${base} title="点击编辑"` : base;
+  }
+
   function cellHtml(field, task) {
     const key = field.key;
     const value = task[key];
@@ -115,31 +109,56 @@ const App = (() => {
       const flags = [];
       if (task.is_overdue) flags.push('<span class="pill red">已逾期</span>');
       if (task.is_due_soon && !task.is_overdue) flags.push('<span class="pill">即将到期</span>');
-      return `<td class="name-cell">
+      return `<td ${tdAttrs(field, task, 'name-cell')}>
         <span class="t-name">${escapeHtml(task.name || '(未命名)')}</span>
         ${flags.length ? `<span class="t-sub">${flags.join('')}</span>` : ''}
       </td>`;
     }
-    if (key === 'status') return `<td>${statusTag(task.status)}</td>`;
-    if (key === 'priority') return `<td>${priorityTag(task.priority)}</td>`;
-    if (key === 'owner') return `<td>${task.owner ? `<span class="tag gray">${escapeHtml(task.owner)}</span>` : '<span class="muted">—</span>'}</td>`;
+    if (key === 'status') return `<td ${tdAttrs(field, task)}>${statusTag(task.status)}</td>`;
+    if (key === 'priority') return `<td ${tdAttrs(field, task)}>${priorityTag(task.priority)}</td>`;
+    if (key === 'owner') {
+      const inner = task.owner
+        ? `<span class="tag gray">${escapeHtml(task.owner)}</span>`
+        : '<span class="muted">—</span>';
+      return `<td ${tdAttrs(field, task)}>${inner}</td>`;
+    }
     if (key === 'due_date') {
-      if (!task.due_date) return '<td class="due-cell"><span class="muted">—</span></td>';
+      if (!task.due_date) {
+        return `<td ${tdAttrs(field, task, 'due-cell')}><span class="muted">—</span></td>`;
+      }
       const cls = task.is_overdue ? 'over' : (task.is_due_soon ? 'soon' : '');
-      return `<td class="due-cell ${cls}">
+      return `<td ${tdAttrs(field, task, `due-cell ${cls}`.trim())}>
         <span class="d-date">${escapeHtml(task.due_display)}</span>
         ${task.delta_text ? `<span class="d-delta">${escapeHtml(task.delta_text)}</span>` : ''}
       </td>`;
     }
     if (key === 'start_date') {
-      return `<td class="due-cell"><span class="d-date">${task.start_date ? escapeHtml(task.start_display) : '<span class="muted">—</span>'}</span></td>`;
+      const inner = task.start_date
+        ? `<span class="d-date">${escapeHtml(task.start_display)}</span>`
+        : '<span class="muted">—</span>';
+      return `<td ${tdAttrs(field, task, 'due-cell')}><span class="d-date">${inner}</span></td>`;
     }
     if (key === 'remark') {
-      if (!value) return '<td class="remark-cell"><span class="muted">—</span></td>';
-      return `<td class="remark-cell"><div class="clamp2" title="${escapeHtml(value)}">${escapeHtml(value)}</div></td>`;
+      if (!value) return `<td ${tdAttrs(field, task, 'remark-cell')}><span class="muted">—</span></td>`;
+      return `<td ${tdAttrs(field, task, 'remark-cell')}><div class="clamp2" title="${escapeHtml(value)}">${escapeHtml(value)}</div></td>`;
     }
-    if (!value) return '<td><span class="muted">—</span></td>';
-    return `<td>${escapeHtml(value)}</td>`;
+    if (!value) return `<td ${tdAttrs(field, task)}><span class="muted">—</span></td>`;
+    return `<td ${tdAttrs(field, task)}>${escapeHtml(value)}</td>`;
+  }
+
+  function rowHtml(t) {
+    const cls = [t.is_overdue ? 'overdue' : '', t.is_done ? 'done' : ''].filter(Boolean).join(' ');
+    return `<tr class="${cls}" data-id="${t.id}">
+      <td class="col-check"><input type="checkbox" class="row-check" data-id="${t.id}" /></td>
+      ${state.listFields.map((f) => cellHtml(f, t)).join('')}
+      <td>
+        <div class="row-actions">
+          <button data-act="edit" data-id="${t.id}">编辑</button>
+          <button data-act="done" data-id="${t.id}" title="标记完成/重开">${t.is_done ? '重开' : '完成'}</button>
+          <button class="del" data-act="del" data-id="${t.id}">删除</button>
+        </div>
+      </td>
+    </tr>`;
   }
 
   function renderRows(items) {
@@ -155,39 +174,157 @@ const App = (() => {
     }
     table.classList.remove('hidden');
     empty.classList.add('hidden');
+    tbody.innerHTML = items.map(rowHtml).join('');
+  }
 
-    tbody.innerHTML = items.map((t) => {
-      const cls = [t.is_overdue ? 'overdue' : '', t.is_done ? 'done' : ''].filter(Boolean).join(' ');
-      return `<tr class="${cls}" data-id="${t.id}">
-        <td class="col-check"><input type="checkbox" class="row-check" data-id="${t.id}" /></td>
-        ${state.listFields.map((f) => cellHtml(f, t)).join('')}
-        <td>
-          <div class="row-actions">
-            <button data-act="edit" data-id="${t.id}">编辑</button>
-            <button data-act="done" data-id="${t.id}" title="标记为已完成">${t.is_done ? '重开' : '完成'}</button>
-            <button class="del" data-act="del" data-id="${t.id}">删除</button>
-          </div>
-        </td>
-      </tr>`;
-    }).join('');
+  /* ---------------- 单元格内联编辑 ---------------- */
+  function fieldOf(key) {
+    return state.listFields.find((f) => f.key === key);
+  }
 
-    tbody.querySelectorAll('.row-actions button').forEach((btn) => {
-      btn.addEventListener('click', async (ev) => {
-        ev.stopPropagation();
-        const id = Number(btn.dataset.id);
-        const act = btn.dataset.act;
-        if (act === 'edit') return openTask(id);
-        if (act === 'del') return removeTask(id);
-        if (act === 'done') {
-          const task = items.find((x) => x.id === id);
-          const next = task.is_done ? '进行中' : (state.settings.done_status || '已完成');
-          await savePatch(id, { status: next });
-          toast('状态已更新', `任务已标记为「${next}」`, 'ok');
-          return;
+  function taskOf(id) {
+    return (state.items || []).find((t) => t.id === id);
+  }
+
+  function validateInline(field, value, task) {
+    const v = String(value || '');
+    if (field.key === 'name') {
+      if (!v.trim()) return '任务名称不能为空';
+      if (v.trim().length > 200) return '任务名称不能超过 200 个字';
+    }
+    if (field.key === 'owner' && v.length > 50) return '负责人不能超过 50 个字';
+    if (field.key === 'remark' && v.length > 2000) return '备注不能超过 2000 个字';
+    if (field.type === 'date' && v) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return '日期格式不正确';
+      const other = field.key === 'due_date' ? task.start_date : task.due_date;
+      if (other) {
+        const left = field.key === 'due_date' ? other.slice(0, 10) : v;
+        const right = field.key === 'due_date' ? v : other.slice(0, 10);
+        if (left > right) {
+          return field.key === 'due_date' ? '结束时间不能早于开始时间' : '开始时间不能晚于结束时间';
         }
-        return null;
-      });
+      }
+    }
+    return '';
+  }
+
+  function restoreCell(td, task, field) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = `<table><tbody><tr>${cellHtml(field, task)}</tr></tbody></table>`;
+    const fresh = tpl.content.querySelector('td');
+    td.className = fresh.className;
+    td.innerHTML = fresh.innerHTML;
+    td.removeAttribute('data-editing');
+    state.inlineEditing = null;
+  }
+
+  function startInlineEdit(td) {
+    if (state.inlineEditing || state.editingId) return;
+    const id = Number(td.dataset.id);
+    const key = td.dataset.key;
+    const task = taskOf(id);
+    const field = fieldOf(key);
+    if (!task || !field) return;
+
+    const original = task[key] == null ? '' : String(task[key]);
+    let input;
+    if (field.type === 'select') {
+      input = document.createElement('select');
+      input.innerHTML = '<option value="">（清空）</option>' +
+        (field.options || []).map((o) => `<option value="${escapeHtml(o)}"${o === original ? ' selected' : ''}>${escapeHtml(o)}</option>`).join('');
+    } else if (field.type === 'date') {
+      input = document.createElement('input');
+      input.type = 'date';
+      input.value = original.slice(0, 10);
+    } else if (field.type === 'textarea') {
+      input = document.createElement('textarea');
+      input.rows = 2;
+      input.value = original;
+    } else {
+      input = document.createElement('input');
+      input.type = 'text';
+      input.value = original;
+      if (field.maxlength) input.maxLength = field.maxlength;
+    }
+    input.className = 'cell-input';
+
+    td.classList.add('editing');
+    td.dataset.editing = '1';
+    td.innerHTML = '';
+    td.appendChild(input);
+    state.inlineEditing = { id, key, el: td, original };
+    input.focus();
+    if (typeof input.select === 'function') input.select();
+
+    let done = false;
+    const finish = async (save) => {
+      if (done) return;
+      done = true;
+      input.removeEventListener('blur', onBlur);
+      if (!save) {
+        restoreCell(td, task, field);
+        toast('已取消', `${field.label}保持原值`, '');
+        return;
+      }
+      await commitInlineEdit(task, field, input.value, td);
+    };
+    const onBlur = () => finish(true);
+
+    input.addEventListener('blur', onBlur);
+    if (input.tagName === 'SELECT') input.addEventListener('change', () => finish(true));
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+      else if (ev.key === 'Enter') {
+        // 文本域：Enter 直接保存，Ctrl/Cmd+Enter 也保存
+        ev.preventDefault();
+        finish(true);
+      }
     });
+  }
+
+  async function commitInlineEdit(task, field, rawValue, td) {
+    const value = String(rawValue == null ? '' : rawValue).trim();
+    const oldRaw = task[field.key] == null ? '' : String(task[field.key]);
+    const oldCmp = field.type === 'date' ? oldRaw.slice(0, 10) : oldRaw.trim();
+
+    const err = validateInline(field, value, task);
+    if (err) {
+      restoreCell(td, task, field);
+      toast('未保存', `${err}，已保留原值`, 'err');
+      return;
+    }
+    if (value === oldCmp) {   // 未修改
+      restoreCell(td, task, field);
+      return;
+    }
+
+    try {
+      const updated = await API.updateTask(task.id, { [field.key]: value });
+      const idx = (state.items || []).findIndex((t) => t.id === task.id);
+      if (idx >= 0) state.items[idx] = updated;
+
+      state.inlineEditing = null;
+      if (field.key === 'due_date') {
+        // 截止日期影响排序与逾期高亮，整表刷新
+        await loadList();
+      } else {
+        const tr = document.querySelector(`#task-table tbody tr[data-id="${task.id}"]`);
+        if (tr) {
+          const tpl = document.createElement('template');
+          tpl.innerHTML = `<table><tbody>${rowHtml(updated)}</tbody></table>`;
+          tr.replaceWith(tpl.content.querySelector('tr'));
+        }
+      }
+      toast('已保存', `${field.label}已更新`, 'ok');
+      if (['due_date', 'status', 'start_date'].includes(field.key)) {
+        refreshStats();
+        checkReminders(false);
+      }
+      if (['owner', 'priority', 'status'].includes(field.key)) refreshOptions();
+    } catch (e) {
+      restoreCell(td, task, field);
+      toast('保存失败', `${e.message}，已保留原值`, 'err');
+    }
   }
 
   function renderPager() {
@@ -225,6 +362,8 @@ const App = (() => {
       state.total = data.total;
       state.pageCount = data.page_count || 1;
       state.page = data.page;
+      state.items = data.items;
+      state.inlineEditing = null;
       renderRows(data.items);
       renderPager();
       const overdueCount = data.items.filter((t) => t.is_overdue).length;
@@ -436,14 +575,6 @@ const App = (() => {
       fillSelect('#f-status', opts.status, '全部状态');
       fillSelect('#f-priority', opts.priority, '全部划分');
     } catch (e) { /* 忽略 */ }
-  }
-
-  function renderSortSelect() {
-    const sel = document.getElementById('f-sort');
-    sel.innerHTML = state.listFields
-      .filter((f) => f.sort)
-      .map((f) => `<option value="${f.key}" ${f.key === state.sort ? 'selected' : ''}>按${escapeHtml(f.label)}排序</option>`)
-      .join('');
   }
 
   /* ---------------- 提醒 ---------------- */
@@ -730,27 +861,37 @@ const App = (() => {
         loadList();
       });
     });
-    document.getElementById('f-sort').addEventListener('change', (e) => {
-      state.sort = e.target.value;
-      state.page = 1;
-      renderHead();
-      loadList();
-    });
-    document.getElementById('btn-order').addEventListener('click', (e) => {
-      state.order = state.order === 'asc' ? 'desc' : 'asc';
-      e.target.textContent = state.order === 'asc' ? '↑' : '↓';
-      renderHead();
-      loadList();
-    });
     document.getElementById('btn-reset').addEventListener('click', () => {
       document.getElementById('f-q').value = '';
       ['f-owner', 'f-status', 'f-priority', 'f-due-from', 'f-due-to'].forEach((id) => { document.getElementById(id).value = ''; });
       document.getElementById('f-overdue').checked = false;
-      state.sort = 'due_date'; state.order = 'asc'; state.page = 1;
-      document.getElementById('f-sort').value = 'due_date';
-      document.getElementById('btn-order').textContent = '↑';
-      renderHead();
+      state.page = 1;
       loadList();
+    });
+
+    // 列表事件委托：行内操作按钮 + 单元格内联编辑（点击或双击进入编辑态）
+    const tbody = document.querySelector('#task-table tbody');
+    tbody.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('.row-actions button');
+      if (btn) {
+        ev.stopPropagation();
+        const id = Number(btn.dataset.id);
+        const act = btn.dataset.act;
+        if (act === 'edit') openTask(id);
+        else if (act === 'del') removeTask(id);
+        else if (act === 'done') {
+          const task = taskOf(id);
+          const next = task.is_done ? '进行中' : (state.settings.done_status || '已完成');
+          savePatch(id, { status: next }).then(() => toast('状态已更新', `任务已标记为「${next}」`, 'ok'));
+        }
+        return;
+      }
+      const cell = ev.target.closest('td.editable-cell');
+      if (cell && !cell.dataset.editing) startInlineEdit(cell);
+    });
+    tbody.addEventListener('dblclick', (ev) => {
+      const cell = ev.target.closest('td.editable-cell');
+      if (cell && !cell.dataset.editing) startInlineEdit(cell);
     });
 
     // 导入导出
@@ -841,14 +982,13 @@ const App = (() => {
       const meta = await API.fields();
       state.fields = meta.fields;
       state.listFields = meta.list_fields;
-      state.sortable = meta.sortable;
+      state.editableKeys = meta.editable_fields || [];
       state.leadOptions = meta.lead_options;
       const st = await API.getSettings();
       state.settings = st.settings;
       state.pageSize = state.settings.page_size || 20;
+      state.items = state.items || [];
 
-      if (first) renderSortSelect();
-      else renderSortSelect();
       renderHead();
       await refreshOptions();
     } catch (err) {
