@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 本地数据与隐私（任务数据库、设置、备份、日历文件 —— 不上传）
+data/
+*.db
+*.db-shm
+*.db-wal
+*.ics
+*.sqlite
+*.sqlite3
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.log
+*.tmp

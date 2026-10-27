@@ -1,0 +1,8 @@
+# 工作任务台账管理软件 —— 依赖清单
+# 安装：pip install -r requirements.txt
+# 只需要 Python 3.9+
+
+fastapi>=0.110,<1.0          # Web 服务与 REST 接口
+uvicorn[standard]>=0.27,<1.0 # ASGI 服务器
+openpyxl>=3.1,<4.0           # Excel(.xlsx) 导入与导出
+python-multipart>=0.0.9      # 支持上传表格文件（导入功能必需）

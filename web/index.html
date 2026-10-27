@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>工作任务台账</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">台</span>
+      <div class="brand-text">
+        <h1>工作任务台账</h1>
+        <p id="brand-sub">加载中…</p>
+      </div>
+    </div>
+
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-view="list">任务列表</button>
+      <button class="tab" data-view="calendar">日历视图</button>
+      <button class="tab" data-view="stats">统计概览</button>
+      <button class="tab" data-view="settings">设置</button>
+    </nav>
+
+    <div class="top-actions">
+      <button class="btn ghost" id="btn-remind" title="查看待处理提醒">
+        提醒<span class="badge hidden" id="remind-badge">0</span>
+      </button>
+      <button class="btn primary" id="btn-new">＋ 新建任务</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ===================== 任务列表 ===================== -->
+    <section class="view active" id="view-list">
+      <div class="toolbar card">
+        <div class="toolbar-row">
+          <div class="field-inline grow">
+            <input type="search" id="f-q" placeholder="搜索任务名称、负责人、备注…" autocomplete="off" />
+          </div>
+          <select id="f-owner"><option value="">全部负责人</option></select>
+          <select id="f-status"><option value="">全部状态</option></select>
+          <select id="f-priority"><option value="">全部划分</option></select>
+          <div class="date-range">
+            <span class="lbl">截止</span>
+            <input type="date" id="f-due-from" />
+            <span class="dash">至</span>
+            <input type="date" id="f-due-to" />
+          </div>
+          <label class="check"><input type="checkbox" id="f-overdue" /> 仅看逾期</label>
+          <div class="toolbar-actions">
+            <select id="f-sort" title="排序字段"></select>
+            <button class="btn icon" id="btn-order" title="切换升序/降序">↑</button>
+            <button class="btn ghost" id="btn-reset">重置</button>
+          </div>
+        </div>
+        <div class="toolbar-row subtle">
+          <div class="summary" id="list-summary">共 0 条</div>
+          <div class="spacer"></div>
+          <button class="btn ghost sm" id="btn-import">导入表格</button>
+          <button class="btn ghost sm" id="btn-template">下载模板</button>
+          <div class="split">
+            <button class="btn ghost sm" id="btn-export-xlsx">导出 Excel</button>
+            <button class="btn ghost sm" id="btn-export-csv">导出 CSV</button>
+          </div>
+          <button class="btn ghost sm" id="btn-cal-sync" title="生成 .ics 并唤起系统日历">同步到系统日历</button>
+        </div>
+      </div>
+
+      <div class="card table-card">
+        <div class="table-scroll">
+          <table class="task-table" id="task-table">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="empty hidden" id="list-empty">
+          <div class="empty-icon">📋</div>
+          <p>还没有任务</p>
+          <div class="empty-actions">
+            <button class="btn primary" onclick="document.getElementById('btn-new').click()">新建第一条任务</button>
+            <button class="btn ghost" onclick="document.getElementById('btn-import').click()">从表格导入</button>
+          </div>
+        </div>
+        <div class="pager" id="pager"></div>
+      </div>
+    </section>
+
+    <!-- ===================== 日历视图 ===================== -->
+    <section class="view" id="view-calendar">
+      <div class="card cal-card">
+        <div class="cal-head">
+          <div class="cal-title">
+            <button class="btn icon" id="cal-prev">‹</button>
+            <h2 id="cal-label">2026 年 10 月</h2>
+            <button class="btn icon" id="cal-next">›</button>
+            <button class="btn ghost sm" id="cal-today">回到本月</button>
+          </div>
+          <div class="cal-legend">
+            <span class="dot overdue"></span>已逾期
+            <span class="dot soon"></span>即将到期
+            <span class="dot normal"></span>正常
+            <span class="dot done"></span>已完成
+          </div>
+        </div>
+        <div class="cal-week">
+          <div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div class="weekend">六</div><div class="weekend">日</div>
+        </div>
+        <div class="cal-grid" id="cal-grid"></div>
+      </div>
+
+      <aside class="card cal-side" id="cal-side">
+        <div class="side-head">
+          <h3 id="cal-side-title">当日任务</h3>
+          <span class="chip" id="cal-side-count">0</span>
+        </div>
+        <div class="side-body" id="cal-side-body">
+          <p class="muted">点击日历中的某一天查看任务</p>
+        </div>
+      </aside>
+    </section>
+
+    <!-- ===================== 统计概览 ===================== -->
+    <section class="view" id="view-stats">
+      <div class="stat-cards" id="stat-cards"></div>
+      <div class="stat-grid">
+        <div class="card">
+          <h3>按完成状态</h3>
+          <div class="bar-list" id="stat-status"></div>
+        </div>
+        <div class="card">
+          <h3>按任务划分</h3>
+          <div class="bar-list" id="stat-priority"></div>
+        </div>
+        <div class="card">
+          <h3>按负责人</h3>
+          <div class="bar-list" id="stat-owner"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 设置 ===================== -->
+    <section class="view" id="view-settings">
+      <div class="settings-grid">
+        <div class="card">
+          <h3>提醒设置</h3>
+          <div class="form-row">
+            <label>默认提前量</label>
+            <select id="s-lead"></select>
+            <p class="hint">新建任务时默认使用的提醒提前量，可对单个任务单独调整。</p>
+          </div>
+          <div class="form-row">
+            <label>稍后提醒顺延</label>
+            <select id="s-snooze">
+              <option value="10">10 分钟</option>
+              <option value="30">30 分钟</option>
+              <option value="60">1 小时</option>
+              <option value="180">3 小时</option>
+              <option value="1440">1 天</option>
+            </select>
+          </div>
+          <div class="form-row switch-row">
+            <label>桌面通知</label>
+            <input type="checkbox" id="s-notify" class="switch" />
+            <p class="hint">开启后，任务进入提醒窗口时会弹出系统通知。</p>
+          </div>
+          <div class="form-row">
+            <label>提醒轮询间隔</label>
+            <select id="s-poll">
+              <option value="30">30 秒</option>
+              <option value="60">60 秒</option>
+              <option value="300">5 分钟</option>
+            </select>
+          </div>
+          <div class="settings-actions">
+            <button class="btn primary" id="btn-save-settings">保存设置</button>
+            <button class="btn ghost" id="btn-test-notify">测试通知</button>
+          </div>
+          <p class="hint" id="daemon-status"></p>
+        </div>
+
+        <div class="card">
+          <h3>日历同步</h3>
+          <div class="form-row switch-row">
+            <label>数据变动后自动刷新日历文件</label>
+            <input type="checkbox" id="s-auto-ics" class="switch" />
+          </div>
+          <div class="form-row">
+            <label>日历文件路径</label>
+            <input type="text" id="s-ics-path" />
+            <p class="hint">导出的 .ics 文件位置，双击即可导入系统日历。</p>
+          </div>
+          <div class="settings-actions">
+            <button class="btn ghost" id="btn-sync-now">立即生成并打开</button>
+            <button class="btn ghost" id="btn-copy-feed">复制订阅地址</button>
+          </div>
+          <p class="hint">
+            订阅地址可在系统日历中「新建日历订阅」使用，之后任务变更会自动同步。
+          </p>
+        </div>
+
+        <div class="card">
+          <h3>数据管理</h3>
+          <div class="data-actions">
+            <button class="btn ghost" id="btn-backup">立即备份数据库</button>
+            <button class="btn ghost" id="btn-import-2">导入表格</button>
+            <button class="btn danger-ghost" id="btn-clear-all">清空全部任务</button>
+          </div>
+          <p class="hint">
+            数据保存在本地 SQLite 文件 <code>data/tasks.db</code>，备份副本位于 <code>data/backups/</code>。
+          </p>
+          <h3 class="sub">字段一览</h3>
+          <div class="field-table" id="field-table"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== 任务表单弹窗 ===================== -->
+  <div class="modal hidden" id="modal">
+    <div class="modal-mask" data-close="1"></div>
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="modal-title">新建任务</h2>
+        <button class="btn icon" data-close="1" title="关闭">✕</button>
+      </div>
+      <form id="task-form" class="modal-body" autocomplete="off"></form>
+      <div class="modal-foot">
+        <button class="btn ghost" data-close="1">取消</button>
+        <button class="btn primary" id="btn-save-task">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 导入弹窗 ===================== -->
+  <div class="modal hidden" id="import-modal">
+    <div class="modal-mask" data-close="1"></div>
+    <div class="modal-box narrow">
+      <div class="modal-head">
+        <h2>导入表格</h2>
+        <button class="btn icon" data-close="1">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="dropzone" id="dropzone">
+          <p class="dz-title">点击选择或拖入表格文件</p>
+          <p class="dz-sub">支持 .xlsx / .xlsm / .csv，自动识别表头</p>
+        </div>
+        <input type="file" id="file-input" accept=".xlsx,.xlsm,.csv" hidden />
+        <div id="import-preview" class="preview hidden"></div>
+        <div class="form-row">
+          <label>导入方式</label>
+          <select id="import-mode">
+            <option value="append">追加到现有数据</option>
+            <option value="update">按任务名称更新已有任务</option>
+            <option value="replace">清空后重新导入</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost" data-close="1">取消</button>
+        <button class="btn primary" id="btn-do-import" disabled>开始导入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 提醒面板 ===================== -->
+  <aside class="drawer hidden" id="drawer">
+    <div class="drawer-head">
+      <h2>待处理提醒</h2>
+      <button class="btn icon" id="drawer-close">✕</button>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </aside>
+
+  <div class="toasts" id="toasts"></div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/calendar.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
