@@ -506,4 +506,20 @@ def api_backup():
 
 
 # ---------------------------------------------------------------- 静态页面
+# 本地单机应用：静态资源禁用强缓存，浏览器每次协商校验（ETag），
+# 避免升级后仍加载旧版 JS/CSS 导致前端报错（如 API.ping is not a function）。
+
+
+@app.middleware("http")
+async def _no_strong_cache(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if not path.startswith("/api/") and (
+        path == "/"
+        or path.endswith((".html", ".css", ".js", ".png", ".svg", ".ico"))
+    ):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
