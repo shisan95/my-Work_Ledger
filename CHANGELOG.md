@@ -2,6 +2,17 @@
 
 本项目版本号遵循语义化版本（MAJOR.MINOR.PATCH），每次发布会在 GitHub 打同名 tag。
 
+## v1.2.0（2026-10-30）
+
+- 新增 macOS 双击启动支持，命令行方式完全保留
+  - `TaskLedger.app`：标准 App 捆绑包（自绘图标、Info.plist、启动器脚本），双击后无终端窗口、后台启动服务并自动打开浏览器
+  - 幂等启动：服务已在运行时再次双击只会重新打开浏览器，不重复起进程
+  - `停止台账.command`：双击停止后台服务（按 PID + 端口兜底）
+  - 日志写入 `data/logs/`，进程号记录在 `data/server.pid`
+  - 环境变量兼容：`TASK_LEDGER_HOME` / `TASK_LEDGER_PORT` / `TASK_LEDGER_HOST`
+- `run.sh` 与 `start.py --port/--host/--no-browser` 行为不变，两种启动方式共用同一份 SQLite 数据
+- 新增 `scripts/make_icon.py`（纯 Python 绘制图标 PNG）与 `scripts/make_app.sh`（重建 App 捆绑包）
+
 ## v1.1.0（2026-10-27）
 
 - 移除列表排序：删除排序下拉、升降序按钮与表头点击排序，列表改为按截止日期升序固定排序

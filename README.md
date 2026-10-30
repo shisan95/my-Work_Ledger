@@ -44,18 +44,39 @@ task-ledger/
 │   ├── index.html
 │   ├── css/style.css
 │   └── js/{api.js, app.js, calendar.js}
+├── TaskLedger.app/           # macOS 双击启动的 App 捆绑包（make_app.sh 重建）
+├── 停止台账.command           # 双击停止后台服务
+├── run.sh                    # 命令行一键启动脚本（前台运行）
 ├── scripts/
-│   └── import_xlsx.py        # 命令行导入工具（首次建库用）
+│   ├── import_xlsx.py        # 命令行导入工具（首次建库用）
+│   ├── make_icon.py          # 纯 Python 生成应用图标
+│   └── make_app.sh           # 重建 TaskLedger.app
 └── data/                     # 运行时生成
     ├── tasks.db              # SQLite 数据库
     ├── settings.json         # 本地设置
+    ├── server.pid            # 双击启动时的服务进程号
     ├── 任务台账.ics           # 自动生成的日历同步文件
+    ├── logs/                 # 双击启动的运行日志
     └── backups/              # 自动备份（保留最近 10 份）
 ```
 
 ---
 
 ## 三、安装与启动
+
+### 方式一：双击启动（macOS 推荐）
+
+双击项目根目录的 **`TaskLedger.app`**（或桌面上的「任务台账」快捷方式）：
+
+- 无需终端窗口，服务在后台启动并自动打开浏览器；
+- 已在运行时再次双击，只会重新打开浏览器，不会重复启动；
+- 停止服务：双击项目根目录的 **`停止台账.command`**；
+- 日志与 PID 记录在 `data/logs/` 与 `data/server.pid`；
+- 支持环境变量：`TASK_LEDGER_HOME`（项目目录）、`TASK_LEDGER_PORT`（端口）、`TASK_LEDGER_HOST`（地址）。
+
+App 本体（`TaskLedger.app/`）需保留在项目目录内；如需放到「应用程序」文件夹，请改为在桌面保留快捷方式。重建 App 捆绑包：`./scripts/make_app.sh`。
+
+### 方式二：命令行启动（跨平台，参数完整保留）
 
 ```bash
 cd task-ledger
@@ -73,7 +94,7 @@ python3 -m venv .venv
 .venv/bin/python start.py --no-browser          # 不自动打开浏览器
 ```
 
-启动后访问 <http://127.0.0.1:8765>。
+两种方式行为一致：同一份 SQLite 数据、同一端口（默认 8765）、同一套启动参数。启动后访问 <http://127.0.0.1:8765>。
 
 **首次导入数据**（二选一）：
 

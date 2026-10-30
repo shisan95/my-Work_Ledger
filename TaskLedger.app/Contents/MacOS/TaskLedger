@@ -1,0 +1,60 @@
+#!/bin/bash
+# TaskLedger.app 启动器 —— 双击图标即启动服务并打开浏览器（幂等：已运行则直接开浏览器）
+# 环境变量（与命令行方式兼容）：
+#   TASK_LEDGER_HOME   项目目录（默认取 .app 所在目录；.app 需保留在项目文件夹内）
+#   TASK_LEDGER_PORT   监听端口（默认 8765）
+#   TASK_LEDGER_HOST   监听地址（默认 127.0.0.1）
+set -u
+
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"          # .../TaskLedger.app/Contents/MacOS
+BUNDLE_DIR="$(dirname "$(dirname "$SELF_DIR")")"   # .../TaskLedger.app
+PROJECT="${TASK_LEDGER_HOME:-$(dirname "$BUNDLE_DIR")}"
+HOST="${TASK_LEDGER_HOST:-127.0.0.1}"
+PORT="${TASK_LEDGER_PORT:-8765}"
+URL="http://${HOST}:${PORT}"
+LOG_DIR="$PROJECT/data/logs"
+LOG="$LOG_DIR/app-$(date +%Y%m%d).log"
+PID_FILE="$PROJECT/data/server.pid"
+
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:$PATH"
+
+notify() { osascript -e "display notification \"$1\" with title \"任务台账\"" 2>/dev/null; }
+fail()   { osascript -e "display dialog \"$1\" with title \"任务台账启动失败\" buttons {\"好\"} default button 1 with icon stop" 2>/dev/null & exit 1; }
+
+[ -f "$PROJECT/start.py" ] || fail "未找到 start.py。请将 TaskLedger.app 保留在项目目录内，或设置环境变量 TASK_LEDGER_HOME 指向项目目录。"
+
+health() { curl -sm 1 "$URL/api/stats" >/dev/null 2>&1; }
+
+# ---- 已在运行：直接打开浏览器，不再重复启动 ----
+if health; then
+  open "$URL"
+  notify "服务运行中，已在浏览器打开 $URL"
+  exit 0
+fi
+
+# ---- 首次/环境准备 ----
+mkdir -p "$LOG_DIR"
+if [ ! -x "$PROJECT/.venv/bin/python" ]; then
+  notify "首次运行：正在安装依赖（约 1 分钟）…"
+  ( cd "$PROJECT" && python3 -m venv .venv && .venv/bin/pip install --upgrade pip -q \
+      && .venv/bin/pip install -q -r requirements.txt ) >> "$LOG" 2>&1 \
+    || fail "依赖安装失败，详见日志：$LOG"
+fi
+
+# ---- 后台启动（与命令行 python start.py --port $PORT --no-browser 行为一致）----
+nohup "$PROJECT/.venv/bin/python" "$PROJECT/start.py" --host "$HOST" --port "$PORT" --no-browser \
+  >> "$LOG" 2>&1 &
+echo $! > "$PID_FILE"
+disown 2>/dev/null || true
+
+# ---- 等待健康检查通过（最多 30 秒）----
+for _ in $(seq 1 60); do
+  if health; then
+    open "$URL"
+    notify "服务已启动：$URL"
+    exit 0
+  fi
+  sleep 0.5
+done
+
+fail "服务未能在 30 秒内就绪，详见日志：$LOG"
