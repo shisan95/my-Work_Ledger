@@ -1,19 +1,32 @@
-"""FastAPI 应用入口：REST 接口 + 静态页面托管 + 提醒后台线程。"""
+"""FastAPI 应用入口：REST 接口 + 静态页面托管 + 提醒后台线程 + 本机登录鉴权。"""
 from __future__ import annotations
 
 import os
+import signal
 import tempfile
+import threading
+import time
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import config, crud, db, exporter, fields, ics, importer, reminders
+from . import auth, config, crud, db, exporter, fields, ics, importer, reminders
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
+APP_VERSION = "1.3.0"
+
+# 无需登录即可访问的接口：健康检查、登录相关、日历订阅源（供系统日历直接拉取）
+PUBLIC_API_PATHS = {
+    "/api/ping",
+    "/api/auth/status",
+    "/api/auth/setup",
+    "/api/auth/login",
+    "/api/calendar/feed.ics",
+}
 
 
 @asynccontextmanager
@@ -25,7 +38,21 @@ async def lifespan(app: FastAPI):
     reminders.stop()
 
 
-app = FastAPI(title="工作任务台账管理", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="工作任务台账管理", version=APP_VERSION, lifespan=lifespan)
+
+
+@app.middleware("http")
+async def auth_guard(request: Request, call_next):
+    """保护除白名单外的所有 /api 接口；无效会话一律返回 401，由前端跳转登录页。"""
+    path = request.url.path
+    if path.startswith("/api/") and path not in PUBLIC_API_PATHS:
+        token = request.cookies.get(auth.COOKIE_NAME, "")
+        session = auth.validate_session(token)
+        if not session:
+            return JSONResponse({"detail": "未登录或登录已过期"}, status_code=401)
+        request.state.user = session
+    return await call_next(request)
+
 
 
 def _refresh_ics() -> None:
@@ -61,6 +88,117 @@ def _filter_params(
         "overdue_only": overdue_only, "due_soon_only": due_soon_only,
         "remind_only": remind_only, "page": page, "page_size": page_size,
     }
+
+
+# ---------------------------------------------------------------- 启动与登录
+@app.get("/api/ping")
+def api_ping():
+    """健康检查（免登录）：供启动器与启动页判断本地服务是否就绪。"""
+    return {
+        "ok": True,
+        "app": "task-ledger",
+        "version": APP_VERSION,
+        "initialized": auth.is_initialized(),
+    }
+
+
+@app.get("/api/auth/status")
+def api_auth_status(request: Request):
+    """登录状态判断：未创建账号 / 未登录 / 已登录。"""
+    initialized = auth.is_initialized()
+    token = request.cookies.get(auth.COOKIE_NAME, "")
+    session = auth.validate_session(token) if token else None
+    return {
+        "initialized": initialized,
+        "authenticated": bool(session),
+        "user": auth.account_public() if session else None,
+        "expires": session.get("expires") if session else None,
+        "remember": session.get("remember") if session else None,
+    }
+
+
+@app.post("/api/auth/setup")
+def api_auth_setup(payload: Dict[str, Any]):
+    """首次启动：创建本机账号并直接登录。"""
+    if auth.is_initialized():
+        raise HTTPException(400, "本机账号已创建，请直接登录")
+    try:
+        user = auth.setup_account(
+            str((payload or {}).get("username", "")),
+            str((payload or {}).get("password", "")),
+            str((payload or {}).get("display_name", "")),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    remember = bool((payload or {}).get("remember", True))
+    token, expires = auth.create_session(remember)
+    resp = JSONResponse({"ok": True, "user": user, "expires": expires})
+    resp.set_cookie(**auth.cookie_payload(token, remember))
+    return resp
+
+
+@app.post("/api/auth/login")
+def api_auth_login(payload: Dict[str, Any], request: Request):
+    if not auth.is_initialized():
+        raise HTTPException(400, "本机账号尚未创建")
+
+    ip = (request.client.host if request.client else "") or "local"
+    left = auth.lock_remaining(ip)
+    if left > 0:
+        raise HTTPException(429, f"尝试次数过多，请 {left} 秒后重试")
+
+    username = str((payload or {}).get("username", "")).strip()
+    password = str((payload or {}).get("password", ""))
+    remember = bool((payload or {}).get("remember", True))
+
+    if not auth.verify_credentials(username, password):
+        auth.record_failure(ip)
+        raise HTTPException(401, "用户名或密码不正确")
+
+    auth.clear_failures(ip)
+    token, expires = auth.create_session(remember, request.headers.get("user-agent", ""))
+    resp = JSONResponse({"ok": True, "user": auth.account_public(), "expires": expires})
+    resp.set_cookie(**auth.cookie_payload(token, remember))
+    return resp
+
+
+@app.post("/api/auth/logout")
+def api_auth_logout(request: Request):
+    """退出登录：销毁服务端会话并清除 Cookie。"""
+    auth.destroy_session(request.cookies.get(auth.COOKIE_NAME, ""))
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(key=auth.COOKIE_NAME, path="/")
+    return resp
+
+
+@app.post("/api/auth/password")
+def api_auth_password(payload: Dict[str, Any]):
+    try:
+        auth.change_password(
+            str((payload or {}).get("old_password", "")),
+            str((payload or {}).get("new_password", "")),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True, "message": "密码已更新，请重新登录"}
+
+
+@app.post("/api/app/quit")
+def api_app_quit():
+    """退出应用：清理全部会话后优雅关闭本地服务。"""
+    auth.destroy_all_sessions()
+
+    def _shutdown() -> None:
+        time.sleep(0.5)  # 留出时间把响应送达前端
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+        except Exception:
+            os._exit(0)
+
+    threading.Thread(target=_shutdown, daemon=True).start()
+    resp = JSONResponse({"ok": True, "message": "本地服务已退出"})
+    resp.delete_cookie(key=auth.COOKIE_NAME, path="/")
+    return resp
 
 
 # ---------------------------------------------------------------- 字段

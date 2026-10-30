@@ -15,7 +15,10 @@ const App = (() => {
     inlineEditing: null, // 正在内联编辑的单元格：{ id, key, el }
     seenReminders: new Set(),
     lastRemindKey: '',
+    bound: false,        // 事件是否已绑定（退出再登录不重复绑定）
   };
+
+  const timers = [];   // 轮询定时器，退出登录时统一清理
 
   /* ---------------- 小工具 ---------------- */
   const $ = (sel) => document.querySelector(sel);
@@ -547,7 +550,14 @@ const App = (() => {
   }
 
   async function removeTask(id) {
-    if (!window.confirm('确定删除这条任务吗？删除后不可恢复。')) return;
+    const ok = await UI.confirm({
+      title: '删除任务',
+      message: '确定删除这条任务吗？',
+      hint: '删除后不可恢复，建议先导出表格备份。',
+      okText: '删除',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await API.deleteTask(id);
       toast('已删除', '任务已从台账移除', 'ok');
@@ -963,7 +973,14 @@ const App = (() => {
       }
     });
     document.getElementById('btn-clear-all').addEventListener('click', async () => {
-      if (!window.confirm('确定要清空全部任务吗？系统会先自动备份，但仍建议先导出表格。')) return;
+      const ok = await UI.confirm({
+        title: '清空全部任务',
+        message: '确定要清空台账中的全部任务吗？',
+        hint: '系统会先自动备份到 data/backups/，但仍建议先导出表格留存。',
+        okText: '清空',
+        danger: true,
+      });
+      if (!ok) return;
       try {
         const res = await API.clearAll();
         toast('已清空', `共删除 ${res.deleted} 条任务（已自动备份）`, 'ok');
@@ -998,28 +1015,51 @@ const App = (() => {
 
   async function init() {
     await boot(true);
-    bind();
-    CalendarView.init();
+    // 事件只绑定一次：退出登录后重新进入时不再重复绑定
+    if (!state.bound) {
+      state.bound = true;
+      bind();
+      CalendarView.init();
+    }
     await loadList();
     refreshStats();
     checkReminders(false);
     // 每 60 秒刷新提醒状态
-    setInterval(() => checkReminders(true), 60000);
+    timers.push(setInterval(() => checkReminders(true), 60000));
     // 每分钟检查是否跨天，刷新一次列表（逾期状态随之更新）
     let lastDay = new Date().getDate();
-    setInterval(() => {
+    timers.push(setInterval(() => {
       const d = new Date().getDate();
       if (d !== lastDay) {
         lastDay = d;
         loadList();
       }
-    }, 30000);
+    }, 30000));
+  }
+
+  /* 退出登录 / 退出应用时清理：停掉轮询、关闭浮层、清空列表与编辑态 */
+  function teardown() {
+    timers.forEach((t) => clearInterval(t));
+    timers.length = 0;
+    state.inlineEditing = null;
+    state.editingId = null;
+    state.page = 1;
+    state.total = 0;
+    ['modal', 'import-modal', 'confirm-modal', 'pwd-modal', 'drawer', 'user-dropdown']
+      .forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+      });
+    const tbody = document.querySelector('#task-table tbody');
+    if (tbody) tbody.innerHTML = '';
+    const empty = document.getElementById('list-empty');
+    if (empty) empty.classList.add('hidden');
+    const badge = document.getElementById('remind-badge');
+    if (badge) { badge.textContent = '0'; badge.classList.add('hidden'); }
   }
 
   return {
-    init, openTask, escapeHtml, statusTag, priorityTag, loadList, toast,
+    init, teardown, openTask, escapeHtml, statusTag, priorityTag, loadList, toast,
     state, checkReminders,
   };
 })();
-
-document.addEventListener('DOMContentLoaded', () => App.init());

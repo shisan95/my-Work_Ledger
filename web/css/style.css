@@ -504,3 +504,155 @@ input.switch:checked::after { transform: translateX(18px); }
   .form-grid { grid-template-columns: 1fr; }
   .toolbar .date-range { display: none; }
 }
+
+/* ===================== 启动画面 ===================== */
+.splash {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: linear-gradient(160deg, #f7f9ff, #eef3ff 55%, #f7f9ff);
+  transition: opacity .32s ease, visibility .32s;
+}
+.splash.hide { opacity: 0; visibility: hidden; }
+.splash-inner { width: 320px; text-align: center; }
+.splash-logo {
+  width: 64px; height: 64px; margin: 0 auto 16px;
+  display: grid; place-items: center;
+  border-radius: 16px; background: linear-gradient(135deg, #2563eb, #4f8cff);
+  color: #fff; font-size: 26px; font-weight: 700;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, .28);
+  animation: logoIn .5s ease;
+}
+@keyframes logoIn { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
+.splash h1 { font-size: 19px; letter-spacing: .5px; }
+.splash-sub { margin: 6px 0 22px; font-size: 12px; color: var(--muted); }
+.splash-progress { height: 4px; border-radius: 4px; background: #e3e9f5; overflow: hidden; }
+.splash-bar { height: 100%; width: 0; border-radius: 4px; background: linear-gradient(90deg, #2563eb, #4f8cff); transition: width .35s ease; }
+.splash-step { margin: 10px 0 0; min-height: 18px; font-size: 12px; color: var(--text-2); }
+.splash-error { margin-top: 16px; }
+.splash-error p {
+  margin: 0 0 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.6;
+  color: #b42318; background: var(--danger-soft); border: 1px solid #fecdca; border-radius: 8px;
+}
+.splash-actions { display: flex; gap: 8px; justify-content: center; }
+.splash-foot { position: absolute; bottom: 20px; margin: 0; font-size: 11.5px; color: var(--muted); }
+
+/* ===================== 登录 / 创建账号 ===================== */
+.auth-screen { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--bg); }
+.auth-bg {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(900px 480px at 15% 0%, #e8efff 0%, transparent 60%),
+    radial-gradient(700px 420px at 100% 100%, #eaf7f0 0%, transparent 55%);
+}
+.auth-card {
+  position: relative; width: 380px; max-width: 100%;
+  background: #fff; border: 1px solid var(--border); border-radius: 16px;
+  padding: 26px 28px 20px; box-shadow: var(--shadow-lg);
+  animation: pop .2s ease;
+}
+.auth-head { margin-bottom: 18px; text-align: center; }
+.auth-logo {
+  width: 46px; height: 46px; margin: 0 auto 12px;
+  display: grid; place-items: center; border-radius: 12px;
+  background: linear-gradient(135deg, #2563eb, #4f8cff); color: #fff;
+  font-size: 20px; font-weight: 700;
+}
+.auth-head h1 { font-size: 17px; }
+.auth-sub { margin: 5px 0 0; font-size: 12.5px; color: var(--muted); }
+.auth-field { display: block; margin-bottom: 13px; }
+.auth-field > span { display: block; margin-bottom: 5px; font-size: 12.5px; font-weight: 500; color: var(--text-2); }
+.auth-field em { font-style: normal; font-weight: 400; color: var(--muted); }
+.auth-field input {
+  width: 100%; height: 38px; padding: 0 11px;
+  border: 1px solid var(--border-strong); border-radius: 8px;
+  background: #fff; color: var(--text);
+  transition: border-color .15s, box-shadow .15s;
+}
+.auth-field input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+.auth-field input.invalid { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(217, 45, 32, .1); }
+.pwd-wrap { position: relative; }
+.pwd-wrap input { padding-right: 52px; }
+.pwd-toggle {
+  position: absolute; right: 5px; top: 6px; height: 26px; padding: 0 8px;
+  border: none; border-radius: 6px; background: transparent;
+  color: var(--muted); font-size: 12px; cursor: pointer;
+}
+.pwd-toggle:hover { background: #f1f3f5; color: var(--text-2); }
+.auth-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 13px; }
+.auth-row .check { font-size: 12.5px; color: var(--text-2); }
+.link { padding: 0; border: none; background: none; color: var(--primary); font-size: 12.5px; cursor: pointer; }
+.link:hover { text-decoration: underline; }
+.btn.block { display: flex; width: 100%; height: 38px; align-items: center; justify-content: center; }
+.auth-error {
+  margin: 0 0 12px; padding: 9px 11px; font-size: 12.5px;
+  color: #b42318; background: var(--danger-soft);
+  border: 1px solid #fecdca; border-radius: 8px;
+}
+.auth-error.shake { animation: shake .32s; }
+@keyframes shake { 0%, 100% { transform: none; } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+.auth-foot { margin: 14px 0 0; text-align: center; font-size: 11.5px; color: var(--muted); line-height: 1.65; }
+.pwd-meter { display: flex; gap: 4px; margin: -4px 0 12px; }
+.pwd-meter i { flex: 1; height: 3px; border-radius: 3px; background: #eaecf0; transition: background .2s; }
+.pwd-meter.s1 i:nth-child(1) { background: #f04438; }
+.pwd-meter.s2 i:nth-child(-n+2) { background: #f79009; }
+.pwd-meter.s3 i { background: #12b76a; }
+
+/* ===================== 用户菜单 ===================== */
+.user-menu { position: relative; }
+.user-btn {
+  display: flex; align-items: center; gap: 6px; height: 32px;
+  padding: 0 8px 0 4px; border: 1px solid var(--border); border-radius: 999px;
+  background: #fff; color: var(--text-2); cursor: pointer;
+}
+.user-btn:hover { background: #fafbfc; border-color: var(--border-strong); }
+.avatar {
+  width: 24px; height: 24px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--primary-soft); color: #1d4ed8;
+  font-size: 12px; font-weight: 600;
+}
+.user-name { max-width: 84px; overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.caret { font-size: 10px; color: var(--muted); }
+.menu {
+  position: absolute; right: 0; top: 40px; z-index: 70; width: 196px;
+  padding: 6px; background: #fff; border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: var(--shadow-lg);
+  animation: pop .14s ease;
+}
+.menu-head { padding: 8px 10px 9px; margin-bottom: 5px; border-bottom: 1px solid var(--border); }
+.menu-head strong { display: block; font-size: 13px; }
+.menu-head span { font-size: 11.5px; color: var(--muted); }
+.menu-item {
+  display: block; width: 100%; padding: 8px 10px;
+  border: none; border-radius: 7px; background: none;
+  color: var(--text); font-size: 13px; text-align: left; cursor: pointer;
+}
+.menu-item:hover { background: #f4f6f8; }
+.menu-item.danger { color: var(--danger); }
+.menu-item.danger:hover { background: var(--danger-soft); }
+.menu-sep { height: 1px; margin: 5px 0; background: var(--border); }
+
+/* ===================== 确认弹窗 ===================== */
+.confirm-box .modal-body { padding: 16px 20px 4px; }
+.confirm-msg { margin: 0 0 10px; font-size: 13.5px; line-height: 1.65; }
+.confirm-hint { margin: 0; padding: 8px 10px; font-size: 12px; color: var(--muted); background: #f8f9fb; border-radius: 7px; }
+.modal-foot .btn.danger { border-color: var(--danger); background: var(--danger); color: #fff; }
+.modal-foot .btn.danger:hover { background: #b42318; }
+
+/* ===================== 应用已退出 ===================== */
+.closed-screen { position: fixed; inset: 0; z-index: 110; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--bg); }
+.closed-card {
+  width: 420px; max-width: 100%; padding: 32px 28px;
+  text-align: center; background: #fff; border: 1px solid var(--border);
+  border-radius: 16px; box-shadow: var(--shadow-lg);
+}
+.closed-icon {
+  width: 48px; height: 48px; margin: 0 auto 16px;
+  display: grid; place-items: center; border-radius: 50%;
+  background: var(--ok-soft); color: var(--ok); font-size: 22px;
+}
+.closed-card h1 { margin-bottom: 10px; font-size: 18px; }
+.closed-card p { margin: 0 0 8px; font-size: 13px; color: var(--text-2); line-height: 1.7; }
+.closed-card .closed-sub { margin-bottom: 20px; font-size: 12.5px; color: var(--muted); }
+
+body.booting, body.auth-locked { overflow: hidden; }

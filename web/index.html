@@ -8,6 +8,95 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>" />
 </head>
 <body>
+  <!-- ===================== 启动画面 ===================== -->
+  <div class="splash" id="splash">
+    <div class="splash-inner">
+      <div class="splash-logo">台</div>
+      <h1>工作任务台账</h1>
+      <p class="splash-sub">本地任务台账 · 数据仅保存在本机</p>
+      <div class="splash-progress"><div class="splash-bar" id="splash-bar"></div></div>
+      <p class="splash-step" id="splash-step">正在初始化…</p>
+      <div class="splash-error hidden" id="splash-error">
+        <p id="splash-err-msg"></p>
+        <div class="splash-actions">
+          <button class="btn primary" id="btn-boot-retry">重试</button>
+          <button class="btn ghost" id="btn-boot-help">查看帮助</button>
+        </div>
+      </div>
+    </div>
+    <p class="splash-foot">v<span id="splash-version">1.3.0</span></p>
+  </div>
+
+  <!-- ===================== 登录 / 首次创建账号 ===================== -->
+  <div class="auth-screen hidden" id="auth-screen">
+    <div class="auth-bg"></div>
+
+    <!-- 登录 -->
+    <div class="auth-card hidden" id="login-card" role="form" aria-labelledby="login-title">
+      <div class="auth-head">
+        <div class="auth-logo">台</div>
+        <h1 id="login-title">工作任务台账</h1>
+        <p class="auth-sub">请登录以继续使用</p>
+      </div>
+      <form id="login-form" autocomplete="on" novalidate>
+        <label class="auth-field">
+          <span>用户名</span>
+          <input id="login-user" name="username" type="text" autocomplete="username" spellcheck="false" />
+        </label>
+        <label class="auth-field">
+          <span>密码</span>
+          <div class="pwd-wrap">
+            <input id="login-pass" name="password" type="password" autocomplete="current-password" />
+            <button type="button" class="pwd-toggle" id="login-eye" tabindex="-1" aria-label="显示密码">显示</button>
+          </div>
+        </label>
+        <div class="auth-row">
+          <label class="check"><input type="checkbox" id="login-remember" checked /> 记住我（30 天内免登录）</label>
+          <button type="button" class="link" id="btn-forgot">忘记密码？</button>
+        </div>
+        <p class="auth-error hidden" id="login-error" role="alert"></p>
+        <button class="btn primary block" id="btn-login" type="submit">登录</button>
+      </form>
+      <p class="auth-foot hidden" id="login-foot-setup">首次使用？<button type="button" class="link" id="to-setup">创建本机账号</button></p>
+      <p class="auth-foot" id="login-foot-tip">账号与数据都只保存在本机，不会上传到任何服务器</p>
+    </div>
+
+    <!-- 首次创建账号 -->
+    <div class="auth-card hidden" id="setup-card" role="form" aria-labelledby="setup-title">
+      <div class="auth-head">
+        <div class="auth-logo">台</div>
+        <h1 id="setup-title">创建本机账号</h1>
+        <p class="auth-sub">首次使用，请设置登录账号</p>
+      </div>
+      <form id="setup-form" autocomplete="off" novalidate>
+        <label class="auth-field">
+          <span>用户名</span>
+          <input id="setup-user" type="text" value="admin" autocomplete="username" spellcheck="false" />
+        </label>
+        <label class="auth-field">
+          <span>显示名称<em>（可选）</em></span>
+          <input id="setup-name" type="text" placeholder="例如：张三" autocomplete="nickname" />
+        </label>
+        <label class="auth-field">
+          <span>密码</span>
+          <div class="pwd-wrap">
+            <input id="setup-pass" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+            <button type="button" class="pwd-toggle" id="setup-eye" tabindex="-1" aria-label="显示密码">显示</button>
+          </div>
+        </label>
+        <label class="auth-field">
+          <span>确认密码</span>
+          <input id="setup-pass2" type="password" autocomplete="new-password" />
+        </label>
+        <div class="pwd-meter" id="setup-meter"><i></i><i></i><i></i></div>
+        <p class="auth-error hidden" id="setup-error" role="alert"></p>
+        <button class="btn primary block" id="btn-setup" type="submit">创建并进入</button>
+      </form>
+      <p class="auth-foot">密码仅以加盐哈希保存在本机 <code>data/auth.json</code>，请妥善保管</p>
+    </div>
+  </div>
+
+  <div class="app-shell hidden" id="app-shell">
   <header class="topbar">
     <div class="brand">
       <span class="brand-mark">台</span>
@@ -29,6 +118,24 @@
         提醒<span class="badge hidden" id="remind-badge">0</span>
       </button>
       <button class="btn primary" id="btn-new">＋ 新建任务</button>
+
+      <div class="user-menu" id="user-menu">
+        <button class="user-btn" id="btn-user" aria-haspopup="menu" aria-expanded="false" title="账号与退出">
+          <span class="avatar" id="user-avatar">·</span>
+          <span class="user-name" id="user-name">未登录</span>
+          <span class="caret" aria-hidden="true">▾</span>
+        </button>
+        <div class="menu hidden" id="user-dropdown" role="menu" aria-labelledby="btn-user">
+          <div class="menu-head">
+            <strong id="menu-display">—</strong>
+            <span id="menu-account">@—</span>
+          </div>
+          <button class="menu-item" id="menu-change-pwd" role="menuitem">修改密码</button>
+          <button class="menu-item" id="menu-lock" role="menuitem">退出登录</button>
+          <div class="menu-sep"></div>
+          <button class="menu-item danger" id="menu-quit" role="menuitem">退出应用</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -216,6 +323,66 @@
       </div>
     </section>
   </main>
+  </div><!-- /app-shell -->
+
+  <!-- ===================== 通用确认弹窗 ===================== -->
+  <div class="modal hidden" id="confirm-modal">
+    <div class="modal-mask" data-confirm-close="1"></div>
+    <div class="modal-box narrow confirm-box" role="alertdialog" aria-labelledby="confirm-title" aria-describedby="confirm-msg">
+      <div class="modal-head">
+        <h2 id="confirm-title">确认操作</h2>
+      </div>
+      <div class="modal-body">
+        <p class="confirm-msg" id="confirm-msg"></p>
+        <p class="confirm-hint hidden" id="confirm-hint"></p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost" id="confirm-cancel" data-confirm-close="1">取消</button>
+        <button class="btn primary" id="confirm-ok">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 修改密码弹窗 ===================== -->
+  <div class="modal hidden" id="pwd-modal">
+    <div class="modal-mask" data-pwd-close="1"></div>
+    <div class="modal-box narrow">
+      <div class="modal-head">
+        <h2>修改密码</h2>
+        <button class="btn icon" data-pwd-close="1" title="关闭">✕</button>
+      </div>
+      <form class="modal-body" id="pwd-form" autocomplete="off">
+        <div class="form-row">
+          <label>当前密码</label>
+          <input type="password" id="pwd-old" autocomplete="current-password" />
+        </div>
+        <div class="form-row">
+          <label>新密码</label>
+          <input type="password" id="pwd-new" autocomplete="new-password" placeholder="至少 6 位" />
+        </div>
+        <div class="form-row">
+          <label>确认新密码</label>
+          <input type="password" id="pwd-new2" autocomplete="new-password" />
+        </div>
+        <p class="auth-error hidden" id="pwd-error" role="alert"></p>
+      </form>
+      <div class="modal-foot">
+        <button class="btn ghost" data-pwd-close="1">取消</button>
+        <button class="btn primary" id="btn-save-pwd">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 应用已退出 ===================== -->
+  <div class="closed-screen hidden" id="closed-screen">
+    <div class="closed-card">
+      <div class="closed-icon">✓</div>
+      <h1>应用已退出</h1>
+      <p>本地服务已停止，登录会话与本地缓存均已清理。</p>
+      <p class="closed-sub">可关闭此页面；需要再次使用时，双击桌面上的「任务台账」图标重新启动。</p>
+      <button class="btn primary" id="btn-reopen">重新启动应用</button>
+    </div>
+  </div>
 
   <!-- ===================== 任务表单弹窗 ===================== -->
   <div class="modal hidden" id="modal">
@@ -276,6 +443,7 @@
   <div class="toasts" id="toasts"></div>
 
   <script src="/js/api.js"></script>
+  <script src="/js/session.js"></script>
   <script src="/js/calendar.js"></script>
   <script src="/js/app.js"></script>
 </body>

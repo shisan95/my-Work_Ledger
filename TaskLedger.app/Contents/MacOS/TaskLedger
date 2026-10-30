@@ -23,7 +23,7 @@ fail()   { osascript -e "display dialog \"$1\" with title \"任务台账启动�
 
 [ -f "$PROJECT/start.py" ] || fail "未找到 start.py。请将 TaskLedger.app 保留在项目目录内，或设置环境变量 TASK_LEDGER_HOME 指向项目目录。"
 
-health() { curl -sm 1 "$URL/api/stats" >/dev/null 2>&1; }
+health() { curl -sm 1 "$URL/api/ping" >/dev/null 2>&1; }
 
 # ---- 已在运行：直接打开浏览器，不再重复启动 ----
 if health; then

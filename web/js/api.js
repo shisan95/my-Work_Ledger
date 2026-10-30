@@ -1,14 +1,26 @@
 /* ===================== 接口封装 ===================== */
 const API = (() => {
   async function request(url, options = {}) {
-    const res = await fetch(url, options);
+    let res;
+    try {
+      res = await fetch(url, options);
+    } catch (e) {
+      // 网络层中断（服务已退出 / 断网）：交给调用方提示，不误判为登录失效
+      throw new Error('无法连接本地服务，请确认应用正在运行');
+    }
+    if (res.status === 401 && !url.startsWith('/api/auth/')) {
+      // 会话失效：通知启动控制器统一跳转登录页
+      window.dispatchEvent(new CustomEvent('auth:expired', { detail: { url } }));
+    }
     if (!res.ok) {
       let msg = `请求失败（${res.status}）`;
       try {
         const data = await res.json();
         if (data && data.detail) msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
       } catch (e) { /* 忽略解析失败 */ }
-      throw new Error(msg);
+      const err = new Error(msg);
+      err.status = res.status;
+      throw err;
     }
     const ct = res.headers.get('content-type') || '';
     return ct.includes('application/json') ? res.json() : res.text();
@@ -25,6 +37,21 @@ const API = (() => {
   }
 
   return {
+    // ---- 启动与登录 ----
+    ping: () => request('/api/ping'),
+    authStatus: () => request('/api/auth/status'),
+    authSetup: (data) => request('/api/auth/setup', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    }),
+    authLogin: (data) => request('/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    }),
+    authLogout: () => request('/api/auth/logout', { method: 'POST' }),
+    authPassword: (data) => request('/api/auth/password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    }),
+    appQuit: () => request('/api/app/quit', { method: 'POST' }),
+
     fields: () => request('/api/fields'),
     options: () => request('/api/options'),
     stats: () => request('/api/stats'),
