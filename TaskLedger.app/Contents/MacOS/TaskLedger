@@ -16,7 +16,7 @@ LOG_DIR="$PROJECT/data/logs"
 LOG="$LOG_DIR/app-$(date +%Y%m%d).log"
 PID_FILE="$PROJECT/data/server.pid"
 
-export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:$PATH"
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:$PATH"
 
 notify() { osascript -e "display notification \"$1\" with title \"任务台账\"" 2>/dev/null; }
 fail()   { osascript -e "display dialog \"$1\" with title \"任务台账启动失败\" buttons {\"好\"} default button 1 with icon stop" 2>/dev/null & exit 1; }
@@ -30,6 +30,27 @@ if health; then
   open "$URL"
   notify "服务运行中，已在浏览器打开 $URL"
   exit 0
+fi
+
+# ---- 端口被占但服务无响应：清理僵死进程（上次异常退出可能留下孤儿进程）----
+STALE_PIDS="$(lsof -ti tcp:$PORT -sTCP:LISTEN 2>/dev/null)"
+if [ -n "$STALE_PIDS" ]; then
+  notify "检测到僵死进程，正在自动清理…"
+  # 顺带清理过期的 PID 文件
+  OLD_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
+  [ -n "$OLD_PID" ] && [ "$OLD_PID" != "$$" ] && kill "$OLD_PID" 2>/dev/null
+  for p in $STALE_PIDS; do
+    kill "$p" 2>/dev/null
+  done
+  sleep 2
+  STALE_PIDS="$(lsof -ti tcp:$PORT -sTCP:LISTEN 2>/dev/null)"
+  if [ -n "$STALE_PIDS" ]; then
+    for p in $STALE_PIDS; do
+      kill -9 "$p" 2>/dev/null
+    done
+    sleep 1
+  fi
+  rm -f "$PID_FILE"
 fi
 
 # ---- 首次/环境准备 ----
