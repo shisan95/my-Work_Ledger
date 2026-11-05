@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from typing import Any, Dict, List, Optional
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, List, Optional
 
 from .config import DB_PATH
 
@@ -48,12 +49,26 @@ CREATE INDEX IF NOT EXISTS idx_tasks_start   ON tasks(start_date);
 _WRITE_LOCK = threading.Lock()
 
 
-def get_conn() -> sqlite3.Connection:
+@contextmanager
+def get_conn() -> Iterator[sqlite3.Connection]:
+    """获取数据库连接（上下文管理器）。
+
+    注意：sqlite3.Connection 自身作为上下文管理器时只提交/回滚事务、
+    并不会关闭连接，长期运行会泄漏文件描述符，最终导致
+    "unable to open database file"（进程表现为假死）。此处保证退出时关闭。
+    """
     conn = sqlite3.connect(DB_PATH, timeout=15, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def init_db() -> None:
