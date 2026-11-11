@@ -75,7 +75,7 @@ const App = (() => {
   function filters() {
     return {
       q: $('#f-q').value.trim(),
-      status: $('#f-status').value,
+      status: statusFilterValues(),
       priority: $('#f-priority').value,
       due_from: $('#f-due-from').value,
       due_to: $('#f-due-to').value,
@@ -637,11 +637,46 @@ const App = (() => {
     if (keep && values.includes(keep)) el.value = keep;
   }
 
+  // 完成状态多选筛选：勾选值 / 面板渲染 / 按钮文案
+  function statusFilterValues() {
+    return Array.from(document.querySelectorAll('#f-status-box input:checked')).map((x) => x.value);
+  }
+
+  function updateStatusFilterBtn() {
+    const btn = document.getElementById('f-status-btn');
+    if (!btn) return;
+    const picked = statusFilterValues();
+    btn.classList.toggle('has-value', picked.length > 0);
+    const text = picked.length ? `状态：${picked.join('、')}` : '全部状态';
+    btn.innerHTML = `${escapeHtml(text)} <span class="caret">▾</span>`;
+  }
+
+  function renderStatusFilter(values) {
+    const box = document.getElementById('f-status-box');
+    if (!box) return;
+    const picked = new Set(statusFilterValues());
+    box.innerHTML = (values || []).map((v) => `
+      <label class="ms-item"><input type="checkbox" value="${escapeHtml(v)}"${picked.has(v) ? ' checked' : ''} /><span>${escapeHtml(v)}</span></label>`).join('');
+    updateStatusFilterBtn();
+  }
+
+  function clearStatusFilter() {
+    document.querySelectorAll('#f-status-box input:checked').forEach((x) => { x.checked = false; });
+    updateStatusFilterBtn();
+    state.page = 1;
+    loadList();
+  }
+
+  function clearStatusFilterSilently() {
+    document.querySelectorAll('#f-status-box input:checked').forEach((x) => { x.checked = false; });
+    updateStatusFilterBtn();
+  }
+
   async function refreshOptions() {
     try {
       const opts = await API.options();
       state.options = opts;
-      fillSelect('#f-status', opts.status, '全部状态');
+      renderStatusFilter(opts.status);
       fillSelect('#f-priority', opts.priority, '全部划分');
     } catch (e) { /* 忽略 */ }
   }
@@ -867,7 +902,11 @@ const App = (() => {
     const f = filters();
     const sp = new URLSearchParams();
     ['q', 'due_from', 'due_to'].forEach((k) => { if (f[k]) sp.append(k, f[k]); });
-    ['status', 'priority'].forEach((k) => { if (f[k]) sp.append(k, f[k]); });
+    ['status', 'priority'].forEach((k) => {
+      const v = f[k];
+      if (Array.isArray(v)) v.forEach((x) => { if (x) sp.append(k, x); });
+      else if (v) sp.append(k, v);
+    });
     if (f.overdue_only) sp.append('overdue_only', 'true');
     sp.append('format', fmt);
     return '/api/export?' + sp.toString();
@@ -926,7 +965,29 @@ const App = (() => {
       clearTimeout(timer);
       timer = setTimeout(() => { state.page = 1; loadList(); }, 260);
     });
-    ['f-status', 'f-priority', 'f-due-from', 'f-due-to', 'f-overdue'].forEach((id) => {
+    // 完成状态多选筛选面板
+    const stWrap = document.getElementById('f-status-wrap');
+    const stBtn = document.getElementById('f-status-btn');
+    const stPop = document.getElementById('f-status-pop');
+    if (stBtn && stPop) {
+      stBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        stPop.classList.toggle('hidden');
+      });
+      stPop.addEventListener('click', (ev) => ev.stopPropagation());
+      stPop.addEventListener('change', () => {
+        state.page = 1;
+        updateStatusFilterBtn();
+        loadList();
+      });
+      document.getElementById('f-status-clear').addEventListener('click', clearStatusFilter);
+      document.addEventListener('click', (ev) => {
+        if (!stPop.classList.contains('hidden') && stWrap && !stWrap.contains(ev.target)) {
+          stPop.classList.add('hidden');
+        }
+      });
+    }
+    ['f-priority', 'f-due-from', 'f-due-to', 'f-overdue'].forEach((id) => {
       const el = document.getElementById(id);
       el.addEventListener(el.tagName === 'SELECT' || el.type === 'checkbox' ? 'change' : 'input', () => {
         state.page = 1;
@@ -935,7 +996,8 @@ const App = (() => {
     });
     document.getElementById('btn-reset').addEventListener('click', () => {
       document.getElementById('f-q').value = '';
-      ['f-status', 'f-priority', 'f-due-from', 'f-due-to'].forEach((id) => { document.getElementById(id).value = ''; });
+      clearStatusFilterSilently();
+      ['f-priority', 'f-due-from', 'f-due-to'].forEach((id) => { document.getElementById(id).value = ''; });
       document.getElementById('f-overdue').checked = false;
       state.page = 1;
       loadList();
@@ -1063,6 +1125,13 @@ const App = (() => {
   /* ---------------- 启动 ---------------- */
   async function boot(first = true) {
     try {
+      try {
+        const ping = await API.ping();
+        state.version = ping.version || '';
+      } catch (e) { /* ping 失败不影响主流程 */ }
+      const vEl = document.getElementById('app-version');
+      if (vEl && state.version) vEl.textContent = `v${state.version}`;
+
       const meta = await API.fields();
       state.fields = meta.fields;
       state.listFields = meta.list_fields;

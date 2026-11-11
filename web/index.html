@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>工作任务台账</title>
-  <link rel="stylesheet" href="/css/style.css?v=1.4.0" />
+  <link rel="stylesheet" href="/css/style.css?v=1.4.1" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>" />
 </head>
 <body>
@@ -147,7 +147,14 @@
           <div class="field-inline grow">
             <input type="search" id="f-q" placeholder="搜索任务名称、工作内容、备注…" autocomplete="off" />
           </div>
-          <select id="f-status"><option value="">全部状态</option></select>
+          <div class="filter-multi" id="f-status-wrap">
+            <button type="button" class="filter-btn" id="f-status-btn">全部状态 <span class="caret">▾</span></button>
+            <div class="filter-pop hidden" id="f-status-pop">
+              <div class="pop-title">完成状态（可多选）</div>
+              <div class="multi-select compact" id="f-status-box"></div>
+              <div class="pop-actions"><button type="button" id="f-status-clear">清空筛选</button></div>
+            </div>
+          </div>
           <select id="f-priority"><option value="">全部划分</option></select>
           <div class="date-range">
             <span class="lbl">截止</span>
@@ -319,6 +326,13 @@
           <h3 class="sub">字段一览</h3>
           <div class="field-table" id="field-table"></div>
         </div>
+
+        <div class="card about-card">
+          <h3>关于</h3>
+          <p class="about-line"><b>工作任务台账</b></p>
+          <p class="about-line">版本：<code id="app-version">—</code></p>
+          <p class="hint">本地单机应用：数据、账号与备份均只保存在本机，不上传任何服务器。</p>
+        </div>
       </div>
     </section>
   </main>
@@ -441,9 +455,9 @@
 
   <div class="toasts" id="toasts"></div>
 
-  <script src="/js/api.js?v=1.4.0"></script>
-  <script src="/js/session.js?v=1.4.0"></script>
-  <script src="/js/calendar.js?v=1.4.0"></script>
-  <script src="/js/app.js?v=1.4.0"></script>
+  <script src="/js/api.js?v=1.4.1"></script>
+  <script src="/js/session.js?v=1.4.1"></script>
+  <script src="/js/calendar.js?v=1.4.1"></script>
+  <script src="/js/app.js?v=1.4.1"></script>
 </body>
 </html>
