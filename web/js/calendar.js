@@ -67,7 +67,8 @@ const CalendarView = (() => {
       const chips = shown.map((t) => {
         const cls = chipClass(t);
         const name = App.escapeHtml(t.name);
-        return `<span class="cal-chip ${cls}" data-id="${t.id}" title="${name}｜${t.status}">${name}</span>`;
+        const statusText = (t.status_list || []).join('、');
+        return `<span class="cal-chip ${cls}" data-id="${t.id}" title="${name}${statusText ? '｜' + statusText : ''}">${name}</span>`;
       }).join('');
       const more = list.length > shown.length ? `<div class="cal-more">还有 ${list.length - shown.length} 项</div>` : '';
       const cls = ['cal-cell'];
@@ -124,14 +125,14 @@ const CalendarView = (() => {
     body.innerHTML = list.map((t) => {
       const cls = t.is_overdue ? 'overdue' : '';
       const meta = [
-        t.owner ? `负责人 ${App.escapeHtml(t.owner)}` : '',
+        t.work_content ? `内容 ${App.escapeHtml(t.work_content.slice(0, 30))}` : '',
         t.priority ? App.escapeHtml(t.priority) : '',
         t.due_display ? `截止 ${t.due_display}` : '',
       ].filter(Boolean).join(' · ');
       return `<div class="side-task ${cls}" data-id="${t.id}">
         <div class="st-name">${App.escapeHtml(t.name)}</div>
         <div class="st-meta">${meta}</div>
-        <div class="st-meta" style="margin-top:4px">${App.statusTag(t.status)}${t.delta_text ? `<span>${t.delta_text}</span>` : ''}</div>
+        <div class="st-meta" style="margin-top:4px">${App.statusTag(t.status_list || t.status)}${t.delta_text ? `<span>${t.delta_text}</span>` : ''}</div>
       </div>`;
     }).join('');
 

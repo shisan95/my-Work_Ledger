@@ -656,3 +656,33 @@ input.switch:checked::after { transform: translateX(18px); }
 .closed-card .closed-sub { margin-bottom: 20px; font-size: 12.5px; color: var(--muted); }
 
 body.booting, body.auth-locked { overflow: hidden; }
+
+/* ===================== 多选状态 / 详细工作内容 ===================== */
+.tag-group { display: inline-flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.task-table td .tag-group .tag { font-size: 11px; }
+
+/* 单元格内联多选面板 */
+.cell-multi {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 4px 6px; background: #fff;
+  border: 1px solid var(--primary); border-radius: 6px;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .1);
+}
+.cell-multi label {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; line-height: 1.5; white-space: nowrap; cursor: pointer;
+}
+.cell-multi input { margin: 0; accent-color: var(--primary); }
+
+/* 表单多选胶囊 */
+.multi-select { display: flex; flex-wrap: wrap; gap: 6px; }
+.ms-item {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border: 1px solid var(--border-strong); border-radius: 999px;
+  background: #fff; font-size: 12.5px; color: var(--text-2); cursor: pointer;
+  transition: border-color .15s, background .15s, color .15s;
+  white-space: nowrap;
+}
+.ms-item:hover { border-color: var(--primary); }
+.ms-item input { margin: 0; accent-color: var(--primary); }
+.ms-item:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: #1d4ed8; font-weight: 500; }

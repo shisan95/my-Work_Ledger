@@ -13,7 +13,7 @@ HEADER_STYLE_FILL = "DDEBF7"
 
 
 def _columns(registry: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    order = ["name", "owner", "priority", "status", "start_date", "due_date", "remark"]
+    order = ["name", "work_content", "priority", "status", "start_date", "due_date", "remark"]
     cols = [f for k in order for f in registry if f["key"] == k]
     cols += [f for f in registry if f.get("custom")]
     return cols
@@ -26,6 +26,10 @@ def _cell_value(field: Dict[str, Any], task: Dict[str, Any]) -> str:
         if not value:
             return ""
         return date_part(value) if is_all_day(value) else f"{date_part(value)} {time_part(value)}"
+    if key == "status":
+        # 多选状态导出为「进行中、已完成」，与导入解析规则互通
+        items = task.get("status_list") or [x for x in str(value or "").split("|") if x]
+        return "、".join(items)
     return "" if value is None else str(value)
 
 
@@ -85,12 +89,13 @@ def template_bytes(fmt: str = "xlsx") -> bytes:
     demo = [
         {
             "name": "示例：业务系统代码审计",
-            "owner": "张三",
+            "work_content": "完成核心模块代码审计，输出问题清单并跟踪整改",
             "priority": "重要且紧急",
-            "status": "进行中",
+            "status": "进行中|已搁置",
+            "status_list": ["进行中", "已搁置"],
             "start_date": f"{today_str()} 00:00",
             "due_date": f"{today_str()} 23:59",
-            "remark": "进展备注示例",
+            "remark": "进展备注示例；完成状态可多选，用「、」或「|」分隔",
         }
     ]
     if fmt == "csv":

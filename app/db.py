@@ -13,6 +13,7 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     name                TEXT NOT NULL DEFAULT '',
+    work_content        TEXT NOT NULL DEFAULT '',
     owner               TEXT NOT NULL DEFAULT '',
     priority            TEXT NOT NULL DEFAULT '',
     status              TEXT NOT NULL DEFAULT '未开始',
@@ -74,7 +75,28 @@ def get_conn() -> Iterator[sqlite3.Connection]:
 def init_db() -> None:
     with _WRITE_LOCK, get_conn() as conn:
         conn.executescript(_SCHEMA)
+        _migrate(conn)
         conn.commit()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """轻量迁移：补列 + 旧字段数据转存。
+
+    v1.4.0 起「负责人」字段被「详细工作内容情况」(work_content) 取代，
+    旧数据一次性转入新字段，避免信息丢失（可用 meta 标记保证只执行一次）。
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+    if "work_content" not in cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN work_content TEXT NOT NULL DEFAULT ''")
+    done = conn.execute("SELECT v FROM meta WHERE k='migrated_work_content'").fetchone()
+    if not done:
+        conn.execute(
+            "UPDATE tasks SET work_content = owner WHERE owner <> '' AND work_content = ''"
+        )
+        conn.execute(
+            "INSERT INTO meta(k,v) VALUES('migrated_work_content','1') "
+            "ON CONFLICT(k) DO UPDATE SET v='1'"
+        )
 
 
 # ---------------------------------------------------------------- 自定义字段

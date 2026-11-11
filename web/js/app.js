@@ -56,15 +56,25 @@ const App = (() => {
   }
 
   function statusTag(v) {
-    if (!v) return '<span class="muted">—</span>';
-    return `<span class="tag ${STATUS_CLASS[v] || 'gray'}">${escapeHtml(v)}</span>`;
+    const list = Array.isArray(v) ? v : (v ? String(v).split('|').filter(Boolean) : []);
+    if (!list.length) return '<span class="muted">—</span>';
+    return `<span class="tag-group">${list
+      .map((s) => `<span class="tag ${STATUS_CLASS[s] || 'gray'}">${escapeHtml(s)}</span>`)
+      .join('')}</span>`;
+  }
+
+  // 多值字段（状态）统一按 options 顺序规范化，保证比较与存储稳定
+  function normalizeMulti(value, options) {
+    const picked = (Array.isArray(value) ? value : String(value || '').split('|'))
+      .map((s) => String(s).trim()).filter(Boolean);
+    const order = options && options.length ? options : picked;
+    return order.filter((o) => picked.includes(o));
   }
 
   /* ---------------- 筛选参数 ---------------- */
   function filters() {
     return {
       q: $('#f-q').value.trim(),
-      owner: $('#f-owner').value,
       status: $('#f-status').value,
       priority: $('#f-priority').value,
       due_from: $('#f-due-from').value,
@@ -117,13 +127,11 @@ const App = (() => {
         ${flags.length ? `<span class="t-sub">${flags.join('')}</span>` : ''}
       </td>`;
     }
-    if (key === 'status') return `<td ${tdAttrs(field, task)}>${statusTag(task.status)}</td>`;
+    if (key === 'status') return `<td ${tdAttrs(field, task)}>${statusTag(task.status_list || task.status)}</td>`;
     if (key === 'priority') return `<td ${tdAttrs(field, task)}>${priorityTag(task.priority)}</td>`;
-    if (key === 'owner') {
-      const inner = task.owner
-        ? `<span class="tag gray">${escapeHtml(task.owner)}</span>`
-        : '<span class="muted">—</span>';
-      return `<td ${tdAttrs(field, task)}>${inner}</td>`;
+    if (key === 'work_content') {
+      if (!value) return `<td ${tdAttrs(field, task, 'remark-cell')}><span class="muted">—</span></td>`;
+      return `<td ${tdAttrs(field, task, 'remark-cell')}><div class="clamp2" title="${escapeHtml(value)}">${escapeHtml(value)}</div></td>`;
     }
     if (key === 'due_date') {
       if (!task.due_date) {
@@ -195,7 +203,7 @@ const App = (() => {
       if (!v.trim()) return '任务名称不能为空';
       if (v.trim().length > 200) return '任务名称不能超过 200 个字';
     }
-    if (field.key === 'owner' && v.length > 50) return '负责人不能超过 50 个字';
+    if (field.key === 'work_content' && v.length > 2000) return '详细工作内容不能超过 2000 个字';
     if (field.key === 'remark' && v.length > 2000) return '备注不能超过 2000 个字';
     if (field.type === 'date' && v) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return '日期格式不正确';
@@ -230,34 +238,53 @@ const App = (() => {
     if (!task || !field) return;
 
     const original = task[key] == null ? '' : String(task[key]);
+    const multi = field.type === 'multiselect';
     let input;
-    if (field.type === 'select') {
+    let read = () => String(input.value == null ? '' : input.value);
+
+    if (multi) {
+      // 多选：单元格内展开复选面板，勾选后可继续操作，离开时统一保存
+      input = document.createElement('div');
+      input.className = 'cell-input cell-multi';
+      const picked = normalizeMulti(original, field.options);
+      input.innerHTML = (field.options || []).map((o) => `
+        <label><input type="checkbox" value="${escapeHtml(o)}"${picked.includes(o) ? ' checked' : ''} />
+        <span>${escapeHtml(o)}</span></label>`).join('');
+      read = () => Array.from(input.querySelectorAll('input:checked')).map((x) => x.value).join('|');
+    } else if (field.type === 'select') {
       input = document.createElement('select');
       input.innerHTML = '<option value="">（清空）</option>' +
         (field.options || []).map((o) => `<option value="${escapeHtml(o)}"${o === original ? ' selected' : ''}>${escapeHtml(o)}</option>`).join('');
+      input.className = 'cell-input';
     } else if (field.type === 'date') {
       input = document.createElement('input');
       input.type = 'date';
       input.value = original.slice(0, 10);
+      input.className = 'cell-input';
     } else if (field.type === 'textarea') {
       input = document.createElement('textarea');
       input.rows = 2;
       input.value = original;
+      if (field.maxlength) input.maxLength = field.maxlength;
+      input.className = 'cell-input';
     } else {
       input = document.createElement('input');
       input.type = 'text';
       input.value = original;
       if (field.maxlength) input.maxLength = field.maxlength;
+      input.className = 'cell-input';
     }
-    input.className = 'cell-input';
 
     td.classList.add('editing');
     td.dataset.editing = '1';
     td.innerHTML = '';
     td.appendChild(input);
     state.inlineEditing = { id, key, el: td, original };
-    input.focus();
-    if (typeof input.select === 'function') input.select();
+
+    const focusTarget = multi ? input.querySelector('input') : input;
+    if (focusTarget) focusTarget.focus();
+    if (!multi && typeof input.select === 'function') input.select();
+    if (multi) input.addEventListener('mousedown', (ev) => ev.stopPropagation());
 
     let done = false;
     const finish = async (save) => {
@@ -269,26 +296,45 @@ const App = (() => {
         toast('已取消', `${field.label}保持原值`, '');
         return;
       }
-      await commitInlineEdit(task, field, input.value, td);
+      await commitInlineEdit(task, field, read(), td);
     };
     const onBlur = () => finish(true);
 
-    input.addEventListener('blur', onBlur);
-    if (input.tagName === 'SELECT') input.addEventListener('change', () => finish(true));
-    input.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
-      else if (ev.key === 'Enter') {
-        // 文本域：Enter 直接保存，Ctrl/Cmd+Enter 也保存
-        ev.preventDefault();
-        finish(true);
-      }
-    });
+    if (multi) {
+      // 面板内部切换焦点不保存；焦点彻底离开面板才提交
+      input.addEventListener('focusout', (ev) => {
+        if (input.contains(ev.relatedTarget)) return;
+        setTimeout(() => {
+          if (!input.contains(document.activeElement)) finish(true);
+        }, 140);
+      });
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+        else if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+      });
+    } else {
+      input.addEventListener('blur', onBlur);
+      if (input.tagName === 'SELECT') input.addEventListener('change', () => finish(true));
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+        else if (ev.key === 'Enter') {
+          // 文本域：Enter 直接保存，Ctrl/Cmd+Enter 也保存
+          ev.preventDefault();
+          finish(true);
+        }
+      });
+    }
   }
 
   async function commitInlineEdit(task, field, rawValue, td) {
-    const value = String(rawValue == null ? '' : rawValue).trim();
+    let value = String(rawValue == null ? '' : rawValue).trim();
+    if (field.type === 'multiselect') {
+      value = normalizeMulti(value, field.options).join('|');
+    }
     const oldRaw = task[field.key] == null ? '' : String(task[field.key]);
-    const oldCmp = field.type === 'date' ? oldRaw.slice(0, 10) : oldRaw.trim();
+    const oldCmp = field.type === 'date'
+      ? oldRaw.slice(0, 10)
+      : (field.type === 'multiselect' ? normalizeMulti(oldRaw, field.options).join('|') : oldRaw.trim());
 
     const err = validateInline(field, value, task);
     if (err) {
@@ -323,7 +369,7 @@ const App = (() => {
         refreshStats();
         checkReminders(false);
       }
-      if (['owner', 'priority', 'status'].includes(field.key)) refreshOptions();
+      if (['priority', 'status', 'work_content'].includes(field.key)) refreshOptions();
     } catch (e) {
       restoreCell(td, task, field);
       toast('保存失败', `${e.message}，已保留原值`, 'err');
@@ -398,7 +444,15 @@ const App = (() => {
     const label = `<label>${escapeHtml(field.label)}${field.required ? '<span class="req">*</span>' : ''}</label>`;
     let control = '';
 
-    if (field.type === 'select') {
+    if (field.type === 'multiselect') {
+      const picked = normalizeMulti(value, field.options);
+      control = `<div class="multi-select" data-key="${key}">
+        ${(field.options || []).map((o) => `<label class="ms-item">
+          <input type="checkbox" value="${escapeHtml(o)}"${picked.includes(o) ? ' checked' : ''} />
+          <span>${escapeHtml(o)}</span>
+        </label>`).join('')}
+      </div>`;
+    } else if (field.type === 'select') {
       const opts = field.options || [];
       control = `<select data-key="${key}">
         <option value="">${escapeHtml(field.placeholder || '请选择')}</option>
@@ -407,9 +461,9 @@ const App = (() => {
     } else if (field.type === 'date') {
       control = dateTimeInputs(key, value);
     } else if (field.type === 'textarea') {
-      control = `<textarea data-key="${key}" placeholder="${escapeHtml(field.placeholder || '')}">${escapeHtml(value || '')}</textarea>`;
+      control = `<textarea data-key="${key}"${field.maxlength ? ` maxlength="${field.maxlength}"` : ''} placeholder="${escapeHtml(field.placeholder || '')}">${escapeHtml(value || '')}</textarea>`;
     } else {
-      control = `<input type="text" data-key="${key}" value="${escapeHtml(value || '')}" placeholder="${escapeHtml(field.placeholder || '')}" />`;
+      control = `<input type="text" data-key="${key}" value="${escapeHtml(value || '')}"${field.maxlength ? ` maxlength="${field.maxlength}"` : ''} placeholder="${escapeHtml(field.placeholder || '')}" />`;
     }
     return `<div class="form-item" data-field="${key}">${label}${control}${field.hint ? `<p class="fhint">${escapeHtml(field.hint)}</p>` : ''}</div>`;
   }
@@ -423,7 +477,7 @@ const App = (() => {
     const html = [
       '<div class="form-grid">',
       ...core.map((f) => {
-        const full = ['name', 'remark'].includes(f.key) ? ' full' : '';
+        const full = ['name', 'remark', 'work_content', 'status'].includes(f.key) ? ' full' : '';
         return `<div class="${full.trim()}">${fieldControl(f, task)}</div>`;
       }),
       '<div class="section-title">提醒设置</div>',
@@ -469,7 +523,13 @@ const App = (() => {
   function collectForm() {
     const form = document.getElementById('task-form');
     const payload = {};
+    // 多选字段：汇总勾选值（竖线分隔）
+    form.querySelectorAll('.multi-select[data-key]').forEach((box) => {
+      payload[box.dataset.key] = Array.from(box.querySelectorAll('input:checked'))
+        .map((i) => i.value).join('|');
+    });
     form.querySelectorAll('[data-key]').forEach((el) => {
+      if (el.classList.contains('multi-select') || el.closest('.multi-select')) return;
       if (el.classList.contains('f-time')) return;
       const key = el.dataset.key;
       if (el.classList.contains('f-date')) {
@@ -581,7 +641,6 @@ const App = (() => {
     try {
       const opts = await API.options();
       state.options = opts;
-      fillSelect('#f-owner', opts.owner, '全部负责人');
       fillSelect('#f-status', opts.status, '全部状态');
       fillSelect('#f-priority', opts.priority, '全部划分');
     } catch (e) { /* 忽略 */ }
@@ -606,7 +665,7 @@ const App = (() => {
         <h4>${g.title}</h4>
         ${list.map((t) => `<div class="remind-item ${g.cls}">
           <div class="ri-name">${escapeHtml(t.name)}</div>
-          <div class="ri-meta">${escapeHtml(t.due_display)} · ${escapeHtml(t.delta_text)}${t.owner ? ' · ' + escapeHtml(t.owner) : ''}</div>
+          <div class="ri-meta">${escapeHtml(t.due_display)} · ${escapeHtml(t.delta_text)}${t.work_content ? ' · ' + escapeHtml(t.work_content.slice(0, 24)) : ''}</div>
           <div class="ri-actions">
             <button data-act="open" data-id="${t.id}">查看</button>
             <button data-act="snooze" data-id="${t.id}">稍后提醒</button>
@@ -628,7 +687,10 @@ const App = (() => {
           checkReminders();
         }
         if (btn.dataset.act === 'done') {
-          await savePatch(id, { status: state.settings.done_status || '已完成' });
+          const doneStatus = state.settings.done_status || '已完成';
+          const task = [...data.overdue, ...data.due_soon].find((x) => x.id === id);
+          const rest = ((task && task.status_list) || []).filter((s) => s !== doneStatus);
+          await savePatch(id, { status: [...rest, doneStatus].join('|') });
           toast('已标记完成', '', 'ok');
           checkReminders();
         }
@@ -680,10 +742,10 @@ const App = (() => {
           <span class="num">${obj[k] || 0}</span>
         </div>`).join('');
       };
-      document.getElementById('stat-status').innerHTML = bars(s.by_status, ['未开始', '进行中', '已完成', '已搁置']);
+      document.getElementById('stat-status').innerHTML = bars(s.by_status, ['未开始', '进行中', '已完成', '已搁置', '未填写']);
       document.getElementById('stat-priority').innerHTML = bars(s.by_priority,
         ['重要且紧急', '重要不紧急', '不重要紧急', '不重要不紧急']);
-      document.getElementById('stat-owner').innerHTML = bars(s.by_owner);
+      document.getElementById('stat-work').innerHTML = bars(s.work_content || {}, ['已填写', '未填写']);
     } catch (e) { /* 忽略 */ }
   }
 
@@ -709,7 +771,7 @@ const App = (() => {
     const reg = state.fields;
     document.getElementById('field-table').innerHTML = reg.map((f) => {
       const originCls = f.origin === '系统补充' ? 'sys' : (f.origin === '导入新增' ? 'new' : '');
-      const typeName = { text: '文本', textarea: '长文本', select: '下拉', date: '日期时间', switch: '开关', lead: '提前量' }[f.type] || f.type;
+      const typeName = { text: '文本', textarea: '长文本', select: '下拉', multiselect: '多选', date: '日期时间', switch: '开关', lead: '提前量' }[f.type] || f.type;
       return `<div class="fr">
         <span class="k">${escapeHtml(f.label)}</span>
         <span class="v">${typeName}${f.options ? ' · ' + f.options.map(escapeHtml).join('/') : ''}</span>
@@ -805,7 +867,7 @@ const App = (() => {
     const f = filters();
     const sp = new URLSearchParams();
     ['q', 'due_from', 'due_to'].forEach((k) => { if (f[k]) sp.append(k, f[k]); });
-    ['owner', 'status', 'priority'].forEach((k) => { if (f[k]) sp.append(k, f[k]); });
+    ['status', 'priority'].forEach((k) => { if (f[k]) sp.append(k, f[k]); });
     if (f.overdue_only) sp.append('overdue_only', 'true');
     sp.append('format', fmt);
     return '/api/export?' + sp.toString();
@@ -864,7 +926,7 @@ const App = (() => {
       clearTimeout(timer);
       timer = setTimeout(() => { state.page = 1; loadList(); }, 260);
     });
-    ['f-owner', 'f-status', 'f-priority', 'f-due-from', 'f-due-to', 'f-overdue'].forEach((id) => {
+    ['f-status', 'f-priority', 'f-due-from', 'f-due-to', 'f-overdue'].forEach((id) => {
       const el = document.getElementById(id);
       el.addEventListener(el.tagName === 'SELECT' || el.type === 'checkbox' ? 'change' : 'input', () => {
         state.page = 1;
@@ -873,7 +935,7 @@ const App = (() => {
     });
     document.getElementById('btn-reset').addEventListener('click', () => {
       document.getElementById('f-q').value = '';
-      ['f-owner', 'f-status', 'f-priority', 'f-due-from', 'f-due-to'].forEach((id) => { document.getElementById(id).value = ''; });
+      ['f-status', 'f-priority', 'f-due-from', 'f-due-to'].forEach((id) => { document.getElementById(id).value = ''; });
       document.getElementById('f-overdue').checked = false;
       state.page = 1;
       loadList();
@@ -891,8 +953,13 @@ const App = (() => {
         else if (act === 'del') removeTask(id);
         else if (act === 'done') {
           const task = taskOf(id);
-          const next = task.is_done ? '进行中' : (state.settings.done_status || '已完成');
-          savePatch(id, { status: next }).then(() => toast('状态已更新', `任务已标记为「${next}」`, 'ok'));
+          const doneStatus = state.settings.done_status || '已完成';
+          const current = task.status_list || [];
+          const next = task.is_done
+            ? current.filter((s) => s !== doneStatus)
+            : [...current.filter((s) => s !== doneStatus), doneStatus];
+          savePatch(id, { status: next })
+            .then(() => toast('状态已更新', `当前状态：${next.join('、') || '未设置'}`, 'ok'));
         }
         return;
       }

@@ -2,8 +2,9 @@
 
 设计要点
 1. BASE_FIELDS 依据你提供的《任务汇总》表头生成（任务名称/任务划分/完成状态/
-   开始时间/结束时间/备注）。其中“任务划分”是四象限优先级。
-2. 需求中要求“按负责人筛选”，原表没有该列，因此系统补充 owner 字段（可留空）。
+   开始时间/结束时间/备注），并按后续需求调整：
+   - 「完成状态」支持多选（同一任务可同时勾选多个状态，存储为 a|b|c）；
+   - 原「负责人」字段替换为「详细工作内容情况」(work_content) 长文本字段。
 3. 导入任意新表格时，未知列会自动注册为自定义字段（存 extra_json），
    并自动生成列表列与表单控件 —— 无需改代码。
 4. 列表采用固定排序（截止日期升序，空日期排最后），不再提供手动排序；
@@ -14,6 +15,10 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from .db import list_custom_fields
+
+# 多值字段分隔符（状态多选统一用竖线，便于 SQL 精确匹配与导入导出互转）
+MULTI_SEP = "|"
+STATUS_OPTIONS = ["未开始", "进行中", "已完成", "已搁置"]
 
 # ---------------------------------------------------------------- 基础字段
 # editable: 是否支持在列表里点击单元格直接编辑
@@ -32,17 +37,18 @@ BASE_FIELDS: List[Dict[str, Any]] = [
         "origin": "表格列",
     },
     {
-        "key": "owner",
-        "label": "负责人",
-        "type": "text",
+        "key": "work_content",
+        "label": "详细工作内容情况",
+        "type": "textarea",
         "required": False,
-        "maxlength": 50,
+        "maxlength": 2000,
         "inList": True,
-        "filter": True,
+        "filter": False,
         "editable": True,
-        "width": 110,
-        "placeholder": "原表无此列，可按需要填写",
-        "origin": "系统补充",
+        "width": 260,
+        "placeholder": "填写具体的工作内容说明",
+        "origin": "需求调整",
+        "hint": "替代原「负责人」字段，用于记录具体工作内容与开展情况",
     },
     {
         "key": "priority",
@@ -61,15 +67,17 @@ BASE_FIELDS: List[Dict[str, Any]] = [
     {
         "key": "status",
         "label": "完成状态",
-        "type": "select",
-        "options": ["未开始", "进行中", "已完成", "已搁置"],
+        "type": "multiselect",
+        "options": STATUS_OPTIONS,
         "required": False,
+        "maxselect": len(STATUS_OPTIONS),
         "inList": True,
         "filter": True,
         "editable": True,
-        "width": 110,
-        "placeholder": "请选择状态",
+        "width": 150,
+        "placeholder": "请选择状态（可多选）",
         "origin": "表格列",
+        "hint": "支持多选：可同时勾选「进行中」「已完成」等多个状态",
     },
     {
         "key": "start_date",
@@ -133,10 +141,13 @@ REMIND_FIELDS: List[Dict[str, Any]] = [
 ALIASES: Dict[str, str] = {
     # 任务名称
     "任务名称": "name", "任务名": "name", "任务": "name", "事项": "name", "标题": "name",
-    "任务标题": "name", "工作内容": "name", "name": "name", "title": "name", "task": "name",
-    # 负责人
-    "负责人": "owner", "责任人": "owner", "经办人": "owner", "执行人": "owner",
-    "负责人员": "owner", "责任人姓名": "owner", "owner": "owner", "assignee": "owner",
+    "任务标题": "name", "name": "name", "title": "name", "task": "name",
+    # 详细工作内容情况（原「负责人」字段已由本字段取代）
+    "详细工作内容情况": "work_content", "工作内容情况": "work_content",
+    "详细工作内容": "work_content", "工作内容": "work_content",
+    "工作说明": "work_content", "内容说明": "work_content",
+    "工作描述": "work_content", "具体情况": "work_content",
+    "workcontent": "work_content", "detail": "work_content",
     # 优先级 / 任务划分
     "任务划分": "priority", "优先级": "priority", "重要程度": "priority", "紧急程度": "priority",
     "重要紧急": "priority", "象限": "priority", "四象限": "priority", "priority": "priority",
