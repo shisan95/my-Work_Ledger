@@ -720,6 +720,7 @@ body.booting, body.auth-locked { overflow: hidden; }
   white-space: nowrap;
 }
 .filter-btn:hover { border-color: var(--primary); }
+.filter-btn.sm { height: 30px; padding: 0 10px; font-size: 12.5px; }
 .filter-btn .caret { font-size: 10px; color: var(--text-3); }
 .filter-btn.has-value {
   border-color: var(--primary); background: var(--primary-soft);
@@ -746,6 +747,37 @@ body.booting, body.auth-locked { overflow: hidden; }
   cursor: pointer; padding: 2px 4px;
 }
 .filter-pop .pop-actions button:hover { text-decoration: underline; }
+
+/* 视图预设 */
+#preset-list { display: flex; flex-direction: column; gap: 2px; min-width: 220px; }
+#preset-list .preset-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px; border-radius: 7px; cursor: pointer;
+  font-size: 13px; color: var(--text-1);
+}
+#preset-list .preset-item:hover { background: var(--primary-soft); }
+#preset-list .preset-item .p-summary { flex: 1; font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#preset-list .preset-item .p-del {
+  border: 0; background: none; color: var(--text-3); cursor: pointer; font-size: 12px; padding: 0 2px;
+}
+#preset-list .preset-item .p-del:hover { color: var(--danger, #dc2626); }
+#preset-list .preset-empty { font-size: 12.5px; color: var(--text-3); padding: 8px; }
+
+/* 列宽拖拽把手 */
+.task-table th[data-key] { position: sticky; }
+.task-table th[data-key]::before {
+  content: ""; position: absolute; top: 0; right: 0; width: 7px; height: 100%;
+  cursor: col-resize; z-index: 3;
+}
+.task-table th[data-key]:hover::before { background: linear-gradient(to left, rgba(37,99,235,.25), transparent); }
+.task-table th.dragging { user-select: none; }
+
+/* 回收站按钮角标 */
+.trash-badge {
+  display: inline-block; min-width: 16px; padding: 0 5px;
+  border-radius: 999px; background: var(--danger, #dc2626); color: #fff;
+  font-size: 11px; line-height: 16px; text-align: center;
+}
 
 /* 设置页「关于」卡片 */
 .about-card .about-line { margin: 4px 0; font-size: 13.5px; color: var(--text-1); }

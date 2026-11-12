@@ -18,6 +18,8 @@ const App = (() => {
     bound: false,        // 事件是否已绑定（退出再登录不重复绑定）
     selected: new Set(), // 勾选的任务 id（批量操作）
     trashCount: 0,       // 回收站数量
+    hiddenCols: (() => { try { return JSON.parse(localStorage.getItem('tl_hidden_cols') || '[]'); } catch (e) { return []; } })(),
+    colWidths: (() => { try { return JSON.parse(localStorage.getItem('tl_colwidth') || '{}'); } catch (e) { return {}; } })(),
   };
 
   const timers = [];   // 轮询定时器，退出登录时统一清理
@@ -88,13 +90,23 @@ const App = (() => {
   }
 
   /* ---------------- 列表 ---------------- */
+  // 当前显示的列（列设置：隐藏列过滤掉）
+  function visibleListFields() {
+    const hidden = new Set(state.hiddenCols || []);
+    return state.listFields.filter((f) => !hidden.has(f.key));
+  }
+
   function renderHead() {
-    const cols = state.listFields;
+    const cols = visibleListFields();
     const ths = [
       '<th class="col-check"><input type="checkbox" id="check-all" title="全选" /></th>',
       ...cols.map((f) => {
         const editable = state.editableKeys.includes(f.key) ? ' title="点击单元格可编辑"' : '';
-        return `<th data-key="${f.key}"${editable} style="min-width:${f.width || 110}px">${escapeHtml(f.label)}</th>`;
+        const w = state.colWidths[f.key];
+        const style = w
+          ? `style="width:${w}px;min-width:${w}px"`
+          : `style="min-width:${f.width || 110}px"`;
+        return `<th data-key="${f.key}"${editable} ${style}>${escapeHtml(f.label)}</th>`;
       }),
       '<th style="width:120px;text-align:right">操作</th>',
     ];
@@ -109,6 +121,36 @@ const App = (() => {
         updateBulkBar();
       });
     }
+    bindColResize();
+  }
+
+  // 表头右缘拖拽调整列宽，宽度本地记忆
+  function bindColResize() {
+    document.querySelectorAll('#task-table thead th[data-key]').forEach((th) => {
+      th.addEventListener('mousedown', (ev) => {
+        const rect = th.getBoundingClientRect();
+        if (rect.right - ev.clientX > 8) return;   // 仅右缘 8px 内触发
+        ev.preventDefault();
+        const key = th.dataset.key;
+        const startX = ev.clientX;
+        const startW = rect.width;
+        th.classList.add('dragging');
+        const move = (e) => {
+          const w = Math.max(60, Math.min(900, startW + e.clientX - startX));
+          th.style.width = `${w}px`;
+          th.style.minWidth = `${w}px`;
+          state.colWidths[key] = w;
+        };
+        const up = () => {
+          document.removeEventListener('mousemove', move);
+          document.removeEventListener('mouseup', up);
+          th.classList.remove('dragging');
+          try { localStorage.setItem('tl_colwidth', JSON.stringify(state.colWidths)); } catch (e) { /* 忽略 */ }
+        };
+        document.addEventListener('mousemove', move);
+        document.addEventListener('mouseup', up);
+      });
+    });
   }
 
   /* ---------------- 单元格 ---------------- */
@@ -171,7 +213,7 @@ const App = (() => {
     const cls = [t.is_overdue ? 'overdue' : '', t.is_done ? 'done' : ''].filter(Boolean).join(' ');
     return `<tr class="${cls}" data-id="${t.id}">
       <td class="col-check"><input type="checkbox" class="row-check" data-id="${t.id}" /></td>
-      ${state.listFields.map((f) => cellHtml(f, t)).join('')}
+      ${visibleListFields().map((f) => cellHtml(f, t)).join('')}
       <td>
         <div class="row-actions">
           <button data-act="edit" data-id="${t.id}">编辑</button>
@@ -744,6 +786,81 @@ const App = (() => {
     refreshStats();
   }
 
+  /* ---------------- 视图预设（本地保存的筛选组合） ---------------- */
+  function loadPresets() {
+    try { return JSON.parse(localStorage.getItem('tl_view_presets') || '[]'); } catch (e) { return []; }
+  }
+
+  function savePresets(list) {
+    try { localStorage.setItem('tl_view_presets', JSON.stringify(list)); } catch (e) { /* 忽略 */ }
+  }
+
+  function currentFilterSnapshot() {
+    return {
+      q: $('#f-q').value.trim(),
+      status: statusFilterValues(),
+      priority: $('#f-priority').value,
+      due_from: $('#f-due-from').value,
+      due_to: $('#f-due-to').value,
+      overdue_only: $('#f-overdue').checked,
+    };
+  }
+
+  function presetSummary(f) {
+    const parts = [];
+    if (f.q) parts.push(`搜索:${f.q}`);
+    if (f.status && f.status.length) parts.push(`状态:${f.status.join('/')}`);
+    if (f.priority) parts.push(`划分:${f.priority}`);
+    if (f.due_from) parts.push(`截止起:${f.due_from}`);
+    if (f.due_to) parts.push(`截止止:${f.due_to}`);
+    if (f.overdue_only) parts.push('仅逾期');
+    return parts.length ? parts.join(' · ') : '（无筛选）';
+  }
+
+  function renderPresets() {
+    const list = loadPresets();
+    const box = document.getElementById('preset-list');
+    if (!box) return;
+    box.innerHTML = list.length ? list.map((p, i) => `
+      <div class="preset-item" data-i="${i}">
+        <span>${escapeHtml(p.name)}</span>
+        <span class="p-summary">${escapeHtml(presetSummary(p.filters || {}))}</span>
+        <button class="p-del" data-del="${i}" title="删除此视图">✕</button>
+      </div>`).join('') : '<div class="preset-empty">还没有保存的视图。设置好筛选后点下方按钮保存。</div>';
+  }
+
+  function applyPreset(p) {
+    const f = p.filters || {};
+    $('#f-q').value = f.q || '';
+    document.querySelectorAll('#f-status-box input').forEach((c) => { c.checked = (f.status || []).includes(c.value); });
+    updateStatusFilterBtn();
+    $('#f-priority').value = f.priority || '';
+    $('#f-due-from').value = f.due_from || '';
+    $('#f-due-to').value = f.due_to || '';
+    $('#f-overdue').checked = !!f.overdue_only;
+    state.page = 1;
+    loadList();
+    toast('视图已应用', p.name || '', 'ok');
+  }
+
+  /* ---------------- 列设置（显隐 + 宽度记忆） ---------------- */
+  function renderColset() {
+    const box = document.getElementById('colset-box');
+    if (!box) return;
+    const hidden = new Set(state.hiddenCols);
+    box.innerHTML = state.listFields.map((f) => `
+      <label class="ms-item"><input type="checkbox" value="${escapeHtml(f.key)}"${hidden.has(f.key) ? '' : ' checked'} /><span>${escapeHtml(f.label)}</span></label>`).join('');
+  }
+
+  function applyColset() {
+    if (!state.listFields.length) return;
+    const checked = Array.from(document.querySelectorAll('#colset-box input:checked')).map((x) => x.value);
+    state.hiddenCols = state.listFields.map((f) => f.key).filter((k) => !checked.includes(k));
+    try { localStorage.setItem('tl_hidden_cols', JSON.stringify(state.hiddenCols)); } catch (e) { /* 忽略 */ }
+    renderHead();
+    renderRows(state.items || []);
+  }
+
   async function savePatch(id, patch) {
     try {
       await API.updateTask(id, patch);
@@ -1148,6 +1265,68 @@ const App = (() => {
       state.page = 1;
       loadList();
     });
+
+    // 视图预设
+    const presetWrap = document.getElementById('preset-wrap');
+    const presetBtn = document.getElementById('btn-preset');
+    const presetPop = document.getElementById('preset-pop');
+    if (presetBtn && presetPop) {
+      presetBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        renderPresets();
+        presetPop.classList.toggle('hidden');
+      });
+      presetPop.addEventListener('click', (ev) => ev.stopPropagation());
+      document.getElementById('preset-list').addEventListener('click', (ev) => {
+        const del = ev.target.closest('.p-del');
+        if (del) {
+          const list = loadPresets();
+          list.splice(Number(del.dataset.del), 1);
+          savePresets(list);
+          renderPresets();
+          return;
+        }
+        const item = ev.target.closest('.preset-item');
+        if (item) {
+          const p = loadPresets()[Number(item.dataset.i)];
+          presetPop.classList.add('hidden');
+          if (p) applyPreset(p);
+        }
+      });
+      document.getElementById('btn-preset-save').addEventListener('click', () => {
+        const name = window.prompt('给这个视图起个名字：', `视图 ${loadPresets().length + 1}`);
+        if (!name || !name.trim()) return;
+        const list = loadPresets();
+        list.push({ name: name.trim(), filters: currentFilterSnapshot() });
+        savePresets(list);
+        renderPresets();
+        toast('视图已保存', name.trim(), 'ok');
+      });
+      document.addEventListener('click', (ev) => {
+        if (!presetPop.classList.contains('hidden') && !presetWrap.contains(ev.target)) {
+          presetPop.classList.add('hidden');
+        }
+      });
+    }
+
+    // 列设置
+    const colsetWrap = document.getElementById('colset-wrap');
+    const colsetBtn = document.getElementById('btn-colset');
+    const colsetPop = document.getElementById('colset-pop');
+    if (colsetBtn && colsetPop) {
+      colsetBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        renderColset();
+        colsetPop.classList.toggle('hidden');
+      });
+      colsetPop.addEventListener('click', (ev) => ev.stopPropagation());
+      document.getElementById('colset-box').addEventListener('change', applyColset);
+      document.addEventListener('click', (ev) => {
+        if (!colsetPop.classList.contains('hidden') && !colsetWrap.contains(ev.target)) {
+          colsetPop.classList.add('hidden');
+        }
+      });
+    }
 
     // 行勾选（批量操作）
     const listTbody = document.querySelector('#task-table tbody');

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>工作任务台账</title>
-  <link rel="stylesheet" href="/css/style.css?v=1.5.0" />
+  <link rel="stylesheet" href="/css/style.css?v=1.5.1" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>" />
 </head>
 <body>
@@ -172,6 +172,21 @@
           <div class="edit-tip">提示：点击单元格可直接编辑，回车保存、Esc 取消</div>
           <div class="spacer"></div>
           <button class="btn ghost sm" id="btn-trash">回收站</button>
+          <div class="filter-multi" id="preset-wrap">
+            <button type="button" class="filter-btn sm" id="btn-preset">视图 <span class="caret">▾</span></button>
+            <div class="filter-pop hidden" id="preset-pop">
+              <div class="pop-title">保存的视图（点击应用）</div>
+              <div id="preset-list"></div>
+              <div class="pop-actions"><button type="button" id="btn-preset-save">＋ 保存当前筛选为视图</button></div>
+            </div>
+          </div>
+          <div class="filter-multi" id="colset-wrap">
+            <button type="button" class="filter-btn sm" id="btn-colset">列设置 <span class="caret">▾</span></button>
+            <div class="filter-pop hidden" id="colset-pop">
+              <div class="pop-title">显示的列（拖动表头右缘可调列宽）</div>
+              <div class="multi-select compact" id="colset-box"></div>
+            </div>
+          </div>
           <button class="btn ghost sm" id="btn-import">导入表格</button>
           <button class="btn ghost sm" id="btn-template">下载模板</button>
           <div class="split">
@@ -502,9 +517,9 @@
 
   <div class="toasts" id="toasts"></div>
 
-  <script src="/js/api.js?v=1.5.0"></script>
-  <script src="/js/session.js?v=1.5.0"></script>
-  <script src="/js/calendar.js?v=1.5.0"></script>
-  <script src="/js/app.js?v=1.5.0"></script>
+  <script src="/js/api.js?v=1.5.1"></script>
+  <script src="/js/session.js?v=1.5.1"></script>
+  <script src="/js/calendar.js?v=1.5.1"></script>
+  <script src="/js/app.js?v=1.5.1"></script>
 </body>
 </html>
