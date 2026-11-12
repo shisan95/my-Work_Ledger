@@ -750,3 +750,25 @@ body.booting, body.auth-locked { overflow: hidden; }
 /* 设置页「关于」卡片 */
 .about-card .about-line { margin: 4px 0; font-size: 13.5px; color: var(--text-1); }
 .about-card code { background: var(--bg-soft, #f1f5f9); padding: 1px 6px; border-radius: 4px; }
+
+/* 批量操作条 */
+.bulk-bar {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: 18px; z-index: 120;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  max-width: min(920px, 92vw);
+  padding: 10px 16px;
+  background: #fff; border: 1px solid var(--border-strong); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, .18);
+  font-size: 13px;
+}
+.bulk-bar .bulk-sep { width: 1px; height: 20px; background: var(--border); }
+.bulk-bar .bulk-label { color: var(--text-3); font-size: 12px; }
+.bulk-bar .multi-select.compact { gap: 4px; }
+.bulk-bar .ms-item { padding: 3px 9px; font-size: 12px; }
+.bulk-bar select { height: 30px; }
+
+/* 回收站弹窗 */
+.trash-list { max-height: 46vh; border: 1px solid var(--border); border-radius: 8px; }
+.trash-list .task-table { min-width: 520px; }
+.trash-list th, .trash-list td { padding: 8px 10px; font-size: 13px; }

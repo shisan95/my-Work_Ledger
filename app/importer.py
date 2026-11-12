@@ -139,7 +139,7 @@ def import_file(path: str, mode: str = "append") -> Dict[str, Any]:
     inserted = updated = skipped = 0
     if mode == "update":
         with db.get_conn() as conn:
-            existing = {r["name"]: r["id"] for r in conn.execute("SELECT id, name FROM tasks").fetchall()}
+            existing = {r["name"]: r["id"] for r in conn.execute("SELECT id, name FROM tasks WHERE deleted_at IS NULL").fetchall()}
     else:
         existing = {}
 

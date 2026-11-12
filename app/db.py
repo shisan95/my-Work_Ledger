@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     snooze_until        TEXT NOT NULL DEFAULT '',
     extra_json          TEXT NOT NULL DEFAULT '{}',
     created_at          TEXT NOT NULL,
-    updated_at          TEXT NOT NULL
+    updated_at          TEXT NOT NULL,
+    deleted_at          TEXT              -- 软删除标记：NULL 为正常，删除时间为回收站
 );
 
 CREATE TABLE IF NOT EXISTS custom_fields (
@@ -88,6 +89,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()}
     if "work_content" not in cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN work_content TEXT NOT NULL DEFAULT ''")
+    if "deleted_at" not in cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN deleted_at TEXT")   # v1.5.0 回收站
     done = conn.execute("SELECT v FROM meta WHERE k='migrated_work_content'").fetchone()
     if not done:
         conn.execute(

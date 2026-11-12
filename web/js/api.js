@@ -64,10 +64,20 @@ const API = (() => {
     updateTask: (id, data) => request(`/api/tasks/${id}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
     }),
-    deleteTask: (id) => request(`/api/tasks/${id}`, { method: 'DELETE' }),
+    deleteTask: (id, hard) => request(`/api/tasks/${id}${hard ? '?hard=1' : ''}`, { method: 'DELETE' }),
     bulkDelete: (ids) => request('/api/tasks/bulk-delete', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
     }),
+    bulkUpdate: (ids, patch) => request('/api/tasks/bulk-update', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, patch }),
+    }),
+    trashRestore: (ids) => request('/api/trash/restore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    }),
+    trashPurge: (ids) => request('/api/trash/purge', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    }),
+    trashEmpty: () => request('/api/trash/empty', { method: 'POST' }),
     clearAll: () => request('/api/tasks/clear', { method: 'POST' }),
 
     importFile: (file, mode) => {

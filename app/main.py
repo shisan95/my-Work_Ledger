@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from . import auth, config, crud, db, exporter, fields, ics, importer, reminders
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
-APP_VERSION = "1.4.2"
+APP_VERSION = "1.5.0"
 
 # 无需登录即可访问的接口：健康检查、登录相关、日历订阅源（供系统日历直接拉取）
 PUBLIC_API_PATHS = {
@@ -79,6 +79,7 @@ def _filter_params(
     remind_only: bool = False,
     page: int = 1,
     page_size: int = 0,
+    trashed: bool = False,
 ) -> Dict[str, Any]:
     """列表筛选参数。排序由服务端固定（截止日期升序），不再支持手动排序。"""
     return {
@@ -87,6 +88,7 @@ def _filter_params(
         "due_from": due_from, "due_to": due_to,
         "overdue_only": overdue_only, "due_soon_only": due_soon_only,
         "remind_only": remind_only, "page": page, "page_size": page_size,
+        "trashed": trashed,
     }
 
 
@@ -239,9 +241,12 @@ def api_list_tasks(
     remind_only: bool = False,
     page: int = 1,
     page_size: int = 0,
+    trashed: bool = False,
 ):
     params = _filter_params(**locals())
-    return crud.list_tasks(params)
+    data = crud.list_tasks(params)
+    data["trash_count"] = crud.trash_count()
+    return data
 
 
 @app.get("/api/tasks/{task_id}")
@@ -275,11 +280,56 @@ async def api_update_task(task_id: int, payload: Dict[str, Any]):
 
 
 @app.delete("/api/tasks/{task_id}")
-def api_delete_task(task_id: int):
-    if not crud.delete_task(task_id):
-        raise HTTPException(404, "任务不存在")
+def api_delete_task(task_id: int, hard: bool = False):
+    if hard:
+        if not crud.purge_task(task_id):
+            raise HTTPException(404, "任务不存在或不在回收站中")
+    else:
+        if not crud.delete_task(task_id):
+            raise HTTPException(404, "任务不存在")
     _refresh_ics()
     return {"ok": True}
+
+
+@app.post("/api/tasks/bulk-update")
+async def api_bulk_update(payload: Dict[str, Any]):
+    ids = [int(i) for i in payload.get("ids", []) if str(i).isdigit()]
+    patch = payload.get("patch") or {}
+    try:
+        count = crud.bulk_update(ids, patch)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    _refresh_ics()
+    return {"ok": True, "updated": count}
+
+
+@app.post("/api/trash/restore")
+async def api_trash_restore(payload: Dict[str, Any]):
+    ids = [int(i) for i in payload.get("ids", []) if str(i).isdigit()]
+    if not ids:
+        raise HTTPException(400, "未选择要恢复的任务")
+    count = crud.restore_many(ids)
+    _refresh_ics()
+    return {"ok": True, "restored": count}
+
+
+@app.post("/api/trash/purge")
+async def api_trash_purge(payload: Dict[str, Any]):
+    db.backup("before-purge")
+    ids = [int(i) for i in payload.get("ids", []) if str(i).isdigit()]
+    if not ids:
+        raise HTTPException(400, "未选择要彻底删除的任务")
+    count = crud.purge_many(ids)
+    _refresh_ics()
+    return {"ok": True, "purged": count}
+
+
+@app.post("/api/trash/empty")
+def api_trash_empty():
+    db.backup("before-empty-trash")
+    count = crud.empty_trash()
+    _refresh_ics()
+    return {"ok": True, "purged": count}
 
 
 @app.post("/api/tasks/bulk-delete")
@@ -406,10 +456,10 @@ def api_calendar_month(year: int, month: int):
 
     with db.get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM tasks WHERE "
+            "SELECT * FROM tasks WHERE deleted_at IS NULL AND "
             "(due_date != '' AND due_date >= ? AND due_date <= ?) OR "
-            "(start_date != '' AND start_date >= ? AND start_date <= ?) OR "
-            "(start_date != '' AND start_date <= ? AND (due_date = '' OR due_date >= ?)) "
+            "(start_date != '' AND start_date >= ? AND start_date <= ? AND deleted_at IS NULL) OR "
+            "(start_date != '' AND start_date <= ? AND (due_date = '' OR due_date >= ?) AND deleted_at IS NULL) "
             "ORDER BY due_date ASC, start_date ASC",
             (start, end, start, end, start, start),
         ).fetchall()

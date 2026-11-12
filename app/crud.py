@@ -99,6 +99,7 @@ def task_to_dict(row: Any, settings: Dict[str, Any] | None = None) -> Dict[str, 
 
     keys = row.keys()
     content = row["work_content"] if "work_content" in keys else ""
+    deleted_at = row["deleted_at"] if "deleted_at" in keys else None
 
     data: Dict[str, Any] = {
         "id": row["id"],
@@ -118,6 +119,7 @@ def task_to_dict(row: Any, settings: Dict[str, Any] | None = None) -> Dict[str, 
         "snooze_until": row["snooze_until"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+        "deleted_at": deleted_at,
         "start_display": display_date(row["start_date"]),
         "due_display": display_date(due),
         "due_date_only": date_part(due),
@@ -135,6 +137,12 @@ def task_to_dict(row: Any, settings: Dict[str, Any] | None = None) -> Dict[str, 
 def _build_where(params: Dict[str, Any]) -> Tuple[str, List[Any]]:
     clauses: List[str] = []
     args: List[Any] = []
+
+    # 软删除：默认只看正常任务；trashed=1 时只看回收站
+    if params.get("trashed"):
+        clauses.append("deleted_at IS NOT NULL")
+    else:
+        clauses.append("deleted_at IS NULL")
 
     q = (params.get("q") or "").strip()
     if q:
@@ -376,20 +384,105 @@ def update_task(task_id: int, payload: Dict[str, Any]) -> Optional[Dict[str, Any
 
 
 def delete_task(task_id: int) -> bool:
+    """软删除：移入回收站，可恢复。彻底删除走 purge_task。"""
+    row = get_raw(task_id)
+    if row is None:
+        return False
     with db._WRITE_LOCK, db.get_conn() as conn:
-        cur = conn.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+        conn.execute("UPDATE tasks SET deleted_at=? WHERE id=?", (now_str(), task_id))
+        conn.commit()
+    return True
+
+
+def restore_task(task_id: int) -> bool:
+    with db._WRITE_LOCK, db.get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE tasks SET deleted_at=NULL WHERE id=? AND deleted_at IS NOT NULL",
+            (task_id,))
+        conn.commit()
+    return cur.rowcount > 0
+
+
+def purge_task(task_id: int) -> bool:
+    """彻底删除（不可恢复）。"""
+    with db._WRITE_LOCK, db.get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM tasks WHERE id=? AND deleted_at IS NOT NULL", (task_id,))
         conn.commit()
     return cur.rowcount > 0
 
 
 def bulk_delete(ids: List[int]) -> int:
+    """批量移入回收站。"""
+    if not ids:
+        return 0
+    marks = ",".join("?" * len(ids))
+    now = now_str()
+    with db._WRITE_LOCK, db.get_conn() as conn:
+        cur = conn.execute(
+            f"UPDATE tasks SET deleted_at=? WHERE id IN ({marks}) AND deleted_at IS NULL",
+            [now] + ids)
+        conn.commit()
+    return cur.rowcount
+
+
+def bulk_update(ids: List[int], patch: Dict[str, Any]) -> int:
+    """批量修改状态/任务划分/提醒开关等核心字段。"""
+    allowed: Dict[str, Any] = {}
+    if "status" in patch:
+        validate_status(patch.get("status"))
+        allowed["status"] = normalize_status(patch.get("status"))
+    if "priority" in patch:
+        allowed["priority"] = safe_str(patch.get("priority"))
+    if "remark" in patch:
+        allowed["remark"] = safe_str(patch.get("remark"))
+    if not ids or not allowed:
+        return 0
+    allowed["updated_at"] = now_str()
+    set_sql = ",".join(f"{k}=?" for k in allowed)
+    marks = ",".join("?" * len(ids))
+    with db._WRITE_LOCK, db.get_conn() as conn:
+        cur = conn.execute(
+            f"UPDATE tasks SET {set_sql} WHERE id IN ({marks})",
+            list(allowed.values()) + ids)
+        conn.commit()
+    return cur.rowcount
+
+
+def restore_many(ids: List[int]) -> int:
     if not ids:
         return 0
     marks = ",".join("?" * len(ids))
     with db._WRITE_LOCK, db.get_conn() as conn:
-        cur = conn.execute(f"DELETE FROM tasks WHERE id IN ({marks})", ids)
+        cur = conn.execute(
+            f"UPDATE tasks SET deleted_at=NULL WHERE id IN ({marks})", ids)
         conn.commit()
     return cur.rowcount
+
+
+def purge_many(ids: List[int]) -> int:
+    if not ids:
+        return 0
+    marks = ",".join("?" * len(ids))
+    with db._WRITE_LOCK, db.get_conn() as conn:
+        cur = conn.execute(
+            f"DELETE FROM tasks WHERE id IN ({marks}) AND deleted_at IS NOT NULL", ids)
+        conn.commit()
+    return cur.rowcount
+
+
+def empty_trash() -> int:
+    """清空回收站（彻底删除全部已软删任务）。"""
+    with db._WRITE_LOCK, db.get_conn() as conn:
+        cur = conn.execute("DELETE FROM tasks WHERE deleted_at IS NOT NULL")
+        conn.commit()
+    return cur.rowcount
+
+
+def trash_count() -> int:
+    with db.get_conn() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) c FROM tasks WHERE deleted_at IS NOT NULL").fetchone()["c"]
 
 
 def clear_all() -> int:
@@ -410,7 +503,7 @@ def options() -> Dict[str, List[str]]:
     """筛选项：状态取固定选项（多值字段），划分取已有数据去重。"""
     with db.get_conn() as conn:
         priorities = [r[0] for r in conn.execute(
-            "SELECT DISTINCT priority FROM tasks WHERE priority != '' ORDER BY priority").fetchall()]
+            "SELECT DISTINCT priority FROM tasks WHERE priority != '' AND deleted_at IS NULL ORDER BY priority").fetchall()]
     return {
         "status": list(fields.STATUS_OPTIONS),
         "priority": priorities,
@@ -423,19 +516,20 @@ def stats() -> Dict[str, Any]:
     done = settings.get("done_status", "已完成")
     now = now_str()
     with db.get_conn() as conn:
-        total = conn.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
-        status_rows = [r[0] for r in conn.execute("SELECT status FROM tasks").fetchall()]
+        total = conn.execute("SELECT COUNT(*) c FROM tasks WHERE deleted_at IS NULL").fetchone()["c"]
+        status_rows = [r[0] for r in conn.execute(
+            "SELECT status FROM tasks WHERE deleted_at IS NULL").fetchall()]
         by_priority = {r[0]: r[1] for r in conn.execute(
-            "SELECT priority, COUNT(*) FROM tasks WHERE priority != '' GROUP BY priority").fetchall()}
+            "SELECT priority, COUNT(*) FROM tasks WHERE priority != '' AND deleted_at IS NULL GROUP BY priority").fetchall()}
         filled = conn.execute(
-            "SELECT COUNT(*) c FROM tasks WHERE work_content != ''").fetchone()["c"]
+            "SELECT COUNT(*) c FROM tasks WHERE work_content != '' AND deleted_at IS NULL").fetchone()["c"]
         overdue = conn.execute(
             "SELECT COUNT(*) c FROM tasks WHERE due_date != '' AND due_date < ? "
-            "AND ('|' || status || '|') NOT LIKE ?",
+            "AND ('|' || status || '|') NOT LIKE ? AND deleted_at IS NULL",
             (now, _status_like(done))).fetchone()["c"]
-        no_due = conn.execute("SELECT COUNT(*) c FROM tasks WHERE due_date = ''").fetchone()["c"]
+        no_due = conn.execute("SELECT COUNT(*) c FROM tasks WHERE due_date = '' AND deleted_at IS NULL").fetchone()["c"]
         week_tasks = conn.execute(
-            "SELECT COUNT(*) c FROM tasks WHERE due_date != '' AND due_date >= ? AND due_date <= ?",
+            "SELECT COUNT(*) c FROM tasks WHERE due_date != '' AND due_date >= ? AND due_date <= ? AND deleted_at IS NULL",
             (now, (dt.datetime.now() + dt.timedelta(days=7)).strftime(DATE_FMT)),
         ).fetchone()["c"]
 

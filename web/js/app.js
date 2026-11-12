@@ -16,6 +16,8 @@ const App = (() => {
     seenReminders: new Set(),
     lastRemindKey: '',
     bound: false,        // 事件是否已绑定（退出再登录不重复绑定）
+    selected: new Set(), // 勾选的任务 id（批量操作）
+    trashCount: 0,       // 回收站数量
   };
 
   const timers = [];   // 轮询定时器，退出登录时统一清理
@@ -102,6 +104,9 @@ const App = (() => {
     if (checkAll) {
       checkAll.addEventListener('change', (e) => {
         document.querySelectorAll('.row-check').forEach((c) => { c.checked = e.target.checked; });
+        if (e.target.checked) (state.items || []).forEach((t) => state.selected.add(t.id));
+        else state.selected.clear();
+        updateBulkBar();
       });
     }
   }
@@ -418,6 +423,11 @@ const App = (() => {
       state.page = data.page;
       state.items = data.items;
       state.inlineEditing = null;
+      state.trashCount = data.trash_count || 0;
+      state.selected.clear();
+      updateBulkBar();
+      const trashBtn = document.getElementById('btn-trash');
+      if (trashBtn) trashBtn.innerHTML = `回收站${state.trashCount ? ` <b class="trash-badge">${state.trashCount}</b>` : ''}`;
       renderRows(data.items);
       renderPager();
       const overdueCount = data.items.filter((t) => t.is_overdue).length;
@@ -606,6 +616,134 @@ const App = (() => {
     }
   }
 
+  /* ---------------- 批量操作 ---------------- */
+  function updateBulkBar() {
+    const bar = document.getElementById('bulk-bar');
+    if (!bar) return;
+    const n = state.selected.size;
+    bar.classList.toggle('hidden', n === 0);
+    const cnt = document.getElementById('bulk-count');
+    if (cnt) cnt.textContent = String(n);
+    const checkAll = document.getElementById('check-all');
+    if (checkAll) {
+      const boxes = document.querySelectorAll('.row-check');
+      checkAll.checked = n > 0 && boxes.length > 0 && Array.from(boxes).every((b) => b.checked);
+    }
+  }
+
+  function renderBulkControls() {
+    const box = document.getElementById('bulk-status-box');
+    if (box && state.options && state.options.status) {
+      box.innerHTML = state.options.status.map((s) => `
+        <label class="ms-item"><input type="checkbox" value="${escapeHtml(s)}" /><span>${escapeHtml(s)}</span></label>`).join('');
+    }
+    const sel = document.getElementById('bulk-priority');
+    if (sel && state.options) {
+      sel.innerHTML = '<option value="">划分（不改）</option>' +
+        (state.options.priority || []).map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+    }
+  }
+
+  function bulkIds() {
+    return Array.from(state.selected);
+  }
+
+  async function bulkApplyStatus() {
+    const ids = bulkIds();
+    const picked = Array.from(document.querySelectorAll('#bulk-status-box input:checked')).map((x) => x.value);
+    if (!picked.length) { toast('未选择状态', '请先在批量条里勾选目标状态', 'err'); return; }
+    const ok = await UI.confirm({
+      title: '批量设置状态',
+      message: `将 ${ids.length} 条任务的完成状态覆盖为：${picked.join('、')}`,
+      okText: '应用',
+    });
+    if (!ok) return;
+    try {
+      const r = await API.bulkUpdate(ids, { status: picked.join('|') });
+      toast('批量完成', `已更新 ${r.updated} 条任务的状态`, 'ok');
+      state.selected.clear();
+      await loadList(); refreshStats();
+    } catch (err) { toast('批量失败', err.message, 'err'); }
+  }
+
+  async function bulkApplyPriority() {
+    const ids = bulkIds();
+    const v = document.getElementById('bulk-priority').value;
+    if (!v) { toast('未选择划分', '请先在下拉里选择目标划分', 'err'); return; }
+    const ok = await UI.confirm({
+      title: '批量设置任务划分',
+      message: `将 ${ids.length} 条任务的任务划分设为「${v}」`,
+      okText: '应用',
+    });
+    if (!ok) return;
+    try {
+      const r = await API.bulkUpdate(ids, { priority: v });
+      toast('批量完成', `已更新 ${r.updated} 条任务的划分`, 'ok');
+      state.selected.clear();
+      await loadList(); refreshStats();
+    } catch (err) { toast('批量失败', err.message, 'err'); }
+  }
+
+  async function bulkDelete() {
+    const ids = bulkIds();
+    const ok = await UI.confirm({
+      title: '批量删除',
+      message: `确定删除选中的 ${ids.length} 条任务吗？`,
+      hint: '任务会先移入回收站，可在回收站恢复。',
+      okText: '移入回收站',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const r = await API.bulkDelete(ids);
+      toast('批量删除完成', `${r.deleted} 条任务已移入回收站`, 'ok');
+      state.selected.clear();
+      await loadList(); refreshStats();
+    } catch (err) { toast('批量失败', err.message, 'err'); }
+  }
+
+  /* ---------------- 回收站 ---------------- */
+  async function openTrash() {
+    document.getElementById('trash-modal').classList.remove('hidden');
+    await renderTrash();
+  }
+
+  function closeTrash() {
+    document.getElementById('trash-modal').classList.add('hidden');
+  }
+
+  async function renderTrash() {
+    try {
+      const data = await API.listTasks({ trashed: true, page: 1, page_size: -1 });
+      const items = data.items || [];
+      const tbody = document.querySelector('#trash-table tbody');
+      tbody.innerHTML = items.map((t) => `<tr data-id="${t.id}">
+        <td class="col-check"><input type="checkbox" class="trash-check" value="${t.id}" /></td>
+        <td>${escapeHtml(t.name || '(未命名)')}</td>
+        <td>${statusTag(t.status_list || t.status)}</td>
+        <td class="muted">${escapeHtml(String(t.deleted_at || '').slice(0, 16))}</td>
+        <td style="text-align:right"><div class="row-actions">
+          <button data-act="restore" data-id="${t.id}">恢复</button>
+          <button class="del" data-act="purge" data-id="${t.id}">彻底删除</button>
+        </div></td>
+      </tr>`).join('');
+      document.getElementById('trash-empty').classList.toggle('hidden', items.length > 0);
+      document.getElementById('trash-title').textContent = `回收站（${items.length}）`;
+    } catch (err) {
+      toast('回收站加载失败', err.message, 'err');
+    }
+  }
+
+  function trashCheckedIds() {
+    return Array.from(document.querySelectorAll('.trash-check:checked')).map((c) => Number(c.value));
+  }
+
+  async function afterTrashChange() {
+    await renderTrash();
+    await loadList();
+    refreshStats();
+  }
+
   async function savePatch(id, patch) {
     try {
       await API.updateTask(id, patch);
@@ -620,14 +758,14 @@ const App = (() => {
     const ok = await UI.confirm({
       title: '删除任务',
       message: '确定删除这条任务吗？',
-      hint: '删除后不可恢复，建议先导出表格备份。',
-      okText: '删除',
+      hint: '任务会先移入回收站，可在回收站恢复或彻底删除。',
+      okText: '移入回收站',
       danger: true,
     });
     if (!ok) return;
     try {
       await API.deleteTask(id);
-      toast('已删除', '任务已从台账移除', 'ok');
+      toast('已删除', '任务已移入回收站，可随时恢复', 'ok');
       await loadList();
       refreshStats();
     } catch (err) {
@@ -685,6 +823,7 @@ const App = (() => {
       state.options = opts;
       renderStatusFilter(opts.status);
       fillSelect('#f-priority', opts.priority, '全部划分');
+      renderBulkControls();
     } catch (e) { /* 忽略 */ }
   }
 
@@ -1008,6 +1147,97 @@ const App = (() => {
       document.getElementById('f-overdue').checked = false;
       state.page = 1;
       loadList();
+    });
+
+    // 行勾选（批量操作）
+    const listTbody = document.querySelector('#task-table tbody');
+    listTbody.addEventListener('change', (ev) => {
+      const cb = ev.target.closest('.row-check');
+      if (!cb) return;
+      const id = Number(cb.dataset.id);
+      if (cb.checked) state.selected.add(id); else state.selected.delete(id);
+      updateBulkBar();
+    });
+
+    // 批量操作条
+    document.getElementById('btn-bulk-status').addEventListener('click', bulkApplyStatus);
+    document.getElementById('btn-bulk-priority').addEventListener('click', bulkApplyPriority);
+    document.getElementById('btn-bulk-delete').addEventListener('click', bulkDelete);
+    document.getElementById('btn-bulk-clear').addEventListener('click', () => {
+      state.selected.clear();
+      document.querySelectorAll('.row-check').forEach((c) => { c.checked = false; });
+      const ca = document.getElementById('check-all');
+      if (ca) ca.checked = false;
+      updateBulkBar();
+    });
+
+    // 回收站
+    document.getElementById('btn-trash').addEventListener('click', openTrash);
+    document.querySelectorAll('[data-trash-close]').forEach((el) => {
+      el.addEventListener('click', closeTrash);
+    });
+    const trashTbody = document.querySelector('#trash-table tbody');
+    trashTbody.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('button[data-act]');
+      if (!btn) return;
+      const id = Number(btn.dataset.id);
+      const act = btn.dataset.act;
+      if (act === 'restore') {
+        try {
+          const r = await API.trashRestore([id]);
+          toast('已恢复', `${r.restored} 条任务已回到台账`, 'ok');
+          await afterTrashChange();
+        } catch (err) { toast('恢复失败', err.message, 'err'); }
+      } else if (act === 'purge') {
+        const ok = await UI.confirm({
+          title: '彻底删除', message: '确定彻底删除这条任务吗？',
+          hint: '彻底删除后无法恢复（删除前会自动备份）。', okText: '彻底删除', danger: true,
+        });
+        if (!ok) return;
+        try {
+          await API.trashPurge([id]);
+          toast('已彻底删除', '', 'ok');
+          await afterTrashChange();
+        } catch (err) { toast('删除失败', err.message, 'err'); }
+      }
+    });
+    document.getElementById('trash-check-all').addEventListener('change', (e) => {
+      document.querySelectorAll('.trash-check').forEach((c) => { c.checked = e.target.checked; });
+    });
+    document.getElementById('btn-trash-restore').addEventListener('click', async () => {
+      const ids = trashCheckedIds();
+      if (!ids.length) { toast('未选择', '请先勾选要恢复的任务', 'err'); return; }
+      try {
+        const r = await API.trashRestore(ids);
+        toast('已恢复', `${r.restored} 条任务已回到台账`, 'ok');
+        await afterTrashChange();
+      } catch (err) { toast('恢复失败', err.message, 'err'); }
+    });
+    document.getElementById('btn-trash-purge').addEventListener('click', async () => {
+      const ids = trashCheckedIds();
+      if (!ids.length) { toast('未选择', '请先勾选要彻底删除的任务', 'err'); return; }
+      const ok = await UI.confirm({
+        title: '彻底删除', message: `确定彻底删除选中的 ${ids.length} 条任务吗？`,
+        hint: '彻底删除后无法恢复（删除前会自动备份）。', okText: '彻底删除', danger: true,
+      });
+      if (!ok) return;
+      try {
+        const r = await API.trashPurge(ids);
+        toast('已彻底删除', `${r.purged} 条任务已永久删除`, 'ok');
+        await afterTrashChange();
+      } catch (err) { toast('删除失败', err.message, 'err'); }
+    });
+    document.getElementById('btn-trash-empty').addEventListener('click', async () => {
+      const ok = await UI.confirm({
+        title: '清空回收站', message: '确定清空回收站吗？所有已删除任务将被彻底删除。',
+        hint: '操作前会自动备份数据库。', okText: '清空', danger: true,
+      });
+      if (!ok) return;
+      try {
+        const r = await API.trashEmpty();
+        toast('回收站已清空', `${r.purged} 条任务已永久删除`, 'ok');
+        await afterTrashChange();
+      } catch (err) { toast('操作失败', err.message, 'err'); }
     });
 
     // 列表事件委托：行内操作按钮 + 单元格内联编辑（点击或双击进入编辑态）

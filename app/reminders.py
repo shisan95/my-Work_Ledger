@@ -52,7 +52,7 @@ def scan() -> Dict[str, List[Dict[str, Any]]]:
 
     with db.get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM tasks WHERE due_date != '' ORDER BY due_date ASC"
+            "SELECT * FROM tasks WHERE due_date != '' AND deleted_at IS NULL ORDER BY due_date ASC"
         ).fetchall()
 
     for row in rows:
