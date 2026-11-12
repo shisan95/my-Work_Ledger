@@ -55,6 +55,7 @@ const API = (() => {
     fields: () => request('/api/fields'),
     options: () => request('/api/options'),
     stats: () => request('/api/stats'),
+    weeklyReport: () => request('/api/report/weekly'),
 
     listTasks: (params) => request('/api/tasks?' + qs(params)),
     getTask: (id) => request(`/api/tasks/${id}`),

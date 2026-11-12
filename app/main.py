@@ -14,10 +14,10 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFi
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, config, crud, db, exporter, fields, ics, importer, reminders
+from . import auth, config, crud, db, exporter, fields, ics, importer, reminders, utils
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.5.2"
 
 # 无需登录即可访问的接口：健康检查、登录相关、日历订阅源（供系统日历直接拉取）
 PUBLIC_API_PATHS = {
@@ -223,6 +223,51 @@ def api_options():
 @app.get("/api/stats")
 def api_stats():
     return crud.stats()
+
+
+@app.get("/api/report/weekly")
+def api_report_weekly():
+    """本周周报数据：新增 / 完成 / 本周到期 / 逾期（口径见返回结构注释）。"""
+    import datetime as dt
+    settings = config.load_settings()
+    done = settings.get("done_status", "已完成")
+    today = dt.date.today()
+    monday = today - dt.timedelta(days=today.weekday())
+    week_start = f"{monday.isoformat()} 00:00"
+    week_end = f"{(monday + dt.timedelta(days=6)).isoformat()} 23:59"
+    now = utils.now_str()
+
+    with db.get_conn() as conn:
+        created = conn.execute(
+            "SELECT * FROM tasks WHERE deleted_at IS NULL AND created_at >= ? AND created_at <= ? ORDER BY created_at ASC",
+            (week_start, week_end)).fetchall()
+        completed = conn.execute(
+            "SELECT * FROM tasks WHERE deleted_at IS NULL AND updated_at >= ? AND updated_at <= ? "
+            "AND ('|' || status || '|') LIKE ? ORDER BY updated_at ASC",
+            (week_start, week_end, f"%|{done}|%")).fetchall()
+        due = conn.execute(
+            "SELECT * FROM tasks WHERE deleted_at IS NULL AND due_date != '' AND due_date >= ? AND due_date <= ? "
+            "ORDER BY due_date ASC", (week_start, week_end)).fetchall()
+        overdue = conn.execute(
+            "SELECT * FROM tasks WHERE deleted_at IS NULL AND due_date != '' AND due_date < ? "
+            "AND ('|' || status || '|') NOT LIKE ? ORDER BY due_date ASC",
+            (now, f"%|{done}|%")).fetchall()
+
+    def brief(rows):
+        return [{
+            "id": r["id"], "name": r["name"],
+            "status_list": crud.status_list_of(r["status"]),
+            "due_display": utils.display_date(r["due_date"] or ""),
+        } for r in rows]
+
+    return {
+        "week_start": monday.isoformat(),
+        "week_end": (monday + dt.timedelta(days=6)).isoformat(),
+        "created": brief(created),
+        "completed": brief(completed),
+        "due": brief(due),
+        "overdue": brief(overdue),
+    }
 
 
 # ---------------------------------------------------------------- 任务 CRUD

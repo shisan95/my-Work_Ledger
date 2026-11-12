@@ -861,6 +861,41 @@ const App = (() => {
     renderRows(state.items || []);
   }
 
+  /* ---------------- 周报 ---------------- */
+  async function openReport() {
+    document.getElementById('report-modal').classList.remove('hidden');
+    const box = document.getElementById('report-text');
+    box.textContent = '生成中…';
+    try {
+      const d = await API.weeklyReport();
+      const lines = [];
+      lines.push(`【工作任务台账 · 周报】${d.week_start} ~ ${d.week_end}`);
+      lines.push('');
+      const section = (title, items, extra) => {
+        lines.push(`${title}（${items.length} 条${extra || ''}）`);
+        if (!items.length) lines.push('（无）');
+        items.forEach((t, i) => {
+          const meta = [t.status_list.join('、'), t.due_display ? `截止 ${t.due_display}` : ''].filter(Boolean).join('，');
+          lines.push(`${i + 1}. ${t.name}${meta ? `（${meta}）` : ''}`);
+        });
+        lines.push('');
+      };
+      section('一、本周新增', d.created);
+      section('二、本周完成', d.completed);
+      section('三、本周到期', d.due);
+      section('四、当前逾期（需关注）', d.overdue);
+      lines.push('—— 由工作任务台账自动生成');
+      box.textContent = lines.join('\n');
+      document.getElementById('report-title').textContent = `本周周报（${d.week_start} ~ ${d.week_end}）`;
+    } catch (err) {
+      box.textContent = `生成失败：${err.message}`;
+    }
+  }
+
+  function closeReport() {
+    document.getElementById('report-modal').classList.add('hidden');
+  }
+
   async function savePatch(id, patch) {
     try {
       await API.updateTask(id, patch);
@@ -1264,6 +1299,36 @@ const App = (() => {
       document.getElementById('f-overdue').checked = false;
       state.page = 1;
       loadList();
+    });
+
+    // 周报与打印
+    document.getElementById('btn-report').addEventListener('click', openReport);
+    document.querySelectorAll('[data-report-close]').forEach((el) => {
+      el.addEventListener('click', closeReport);
+    });
+    document.getElementById('btn-report-copy').addEventListener('click', async () => {
+      const text = document.getElementById('report-text').textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制', '周报全文已复制到剪贴板', 'ok');
+      } catch (e) {
+        // 剪贴板 API 不可用时降级为选区复制
+        const range = document.createRange();
+        range.selectNodeContents(document.getElementById('report-text'));
+        const sel = window.getSelection();
+        sel.removeAllRanges(); sel.addRange(range);
+        document.execCommand('copy');
+        sel.removeAllRanges();
+        toast('已复制', '周报全文已复制到剪贴板', 'ok');
+      }
+    });
+    document.getElementById('btn-print').addEventListener('click', () => {
+      const active = document.querySelector('.tab.active');
+      if (active && active.dataset.view !== 'list') {
+        toast('请先切到任务列表', '打印导出当前筛选下的任务表格', '');
+        return;
+      }
+      window.print();
     });
 
     // 视图预设

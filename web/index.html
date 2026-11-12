@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>工作任务台账</title>
-  <link rel="stylesheet" href="/css/style.css?v=1.5.1" />
+  <link rel="stylesheet" href="/css/style.css?v=1.5.2" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>" />
 </head>
 <body>
@@ -172,6 +172,8 @@
           <div class="edit-tip">提示：点击单元格可直接编辑，回车保存、Esc 取消</div>
           <div class="spacer"></div>
           <button class="btn ghost sm" id="btn-trash">回收站</button>
+          <button class="btn ghost sm" id="btn-report">本周周报</button>
+          <button class="btn ghost sm" id="btn-print">打印 / PDF</button>
           <div class="filter-multi" id="preset-wrap">
             <button type="button" class="filter-btn sm" id="btn-preset">视图 <span class="caret">▾</span></button>
             <div class="filter-pop hidden" id="preset-pop">
@@ -400,6 +402,25 @@
     <button class="btn sm ghost" id="btn-bulk-clear">取消选择</button>
   </div>
 
+  <!-- ===================== 周报弹窗 ===================== -->
+  <div class="modal hidden" id="report-modal">
+    <div class="modal-mask" data-report-close="1"></div>
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="report-title">本周周报</h2>
+        <button class="modal-x" data-report-close="1" title="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <pre id="report-text" class="report-text"></pre>
+        <p class="hint">口径：完成 = 本周内状态更新为「已完成」；数据来自当前台账，可复制到任意文档。</p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="btn-report-copy">复制全文</button>
+        <button class="btn primary" data-report-close="1">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===================== 通用确认弹窗 ===================== -->
   <div class="modal hidden" id="confirm-modal">
     <div class="modal-mask" data-confirm-close="1"></div>
@@ -517,9 +538,9 @@
 
   <div class="toasts" id="toasts"></div>
 
-  <script src="/js/api.js?v=1.5.1"></script>
-  <script src="/js/session.js?v=1.5.1"></script>
-  <script src="/js/calendar.js?v=1.5.1"></script>
-  <script src="/js/app.js?v=1.5.1"></script>
+  <script src="/js/api.js?v=1.5.2"></script>
+  <script src="/js/session.js?v=1.5.2"></script>
+  <script src="/js/calendar.js?v=1.5.2"></script>
+  <script src="/js/app.js?v=1.5.2"></script>
 </body>
 </html>

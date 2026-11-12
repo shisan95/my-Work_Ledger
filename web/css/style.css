@@ -779,6 +779,36 @@ body.booting, body.auth-locked { overflow: hidden; }
   font-size: 11px; line-height: 16px; text-align: center;
 }
 
+/* 周报 */
+.report-text {
+  white-space: pre-wrap; word-break: break-word;
+  font-family: inherit; font-size: 13px; line-height: 1.8;
+  background: var(--bg-soft, #f8fafc); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px 16px; margin: 0;
+  max-height: 55vh; overflow-y: auto;
+}
+
+/* ============ 打印 / PDF 导出 ============ */
+@media print {
+  body { background: #fff !important; }
+  header.app-header, .toolbar, .bulk-bar, .toasts, .drawer,
+  #reminder-drawer, .row-actions, .pager, .edit-tip,
+  .modal, .filter-pop, #view-calendar, #view-stats, #view-settings,
+  .cell-count { display: none !important; }
+  main { padding: 0 !important; }
+  #view-list { display: block !important; }
+  .table-card { box-shadow: none !important; border: 1px solid #ccc !important; overflow: visible !important; }
+  .table-scroll { overflow: visible !important; }
+  .task-table { min-width: 0 !important; width: 100% !important; font-size: 10.5px; }
+  .task-table th { position: static !important; background: #eee !important; padding: 5px 7px !important; }
+  .task-table td { padding: 5px 7px !important; border-bottom: 1px solid #ddd !important; }
+  .task-table th:last-child, .task-table td:last-child { display: none !important; }
+  .task-table td .clamp2 { -webkit-line-clamp: 4 !important; }
+  .t-sub, .pill { display: none !important; }
+  tr { page-break-inside: avoid; }
+  .cell-text { font-size: 10.5px; line-height: 1.5; }
+}
+
 /* 设置页「关于」卡片 */
 .about-card .about-line { margin: 4px 0; font-size: 13.5px; color: var(--text-1); }
 .about-card code { background: var(--bg-soft, #f1f5f9); padding: 1px 6px; border-radius: 4px; }
