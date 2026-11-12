@@ -53,6 +53,9 @@ const App = (() => {
   const STATUS_CLASS = {
     '未开始': 'gray', '进行中': 'blue', '已完成': 'green', '已搁置': 'amber',
   };
+  const STATUS_HEX = {
+    '未开始': '#64748b', '进行中': '#2563eb', '已完成': '#16a34a', '已搁置': '#d97706',
+  };
 
   function priorityTag(v) {
     if (!v) return '<span class="muted">—</span>';
@@ -62,9 +65,17 @@ const App = (() => {
   function statusTag(v) {
     const list = Array.isArray(v) ? v : (v ? String(v).split('|').filter(Boolean) : []);
     if (!list.length) return '<span class="muted">—</span>';
-    return `<span class="tag-group">${list
-      .map((s) => `<span class="tag ${STATUS_CLASS[s] || 'gray'}">${escapeHtml(s)}</span>`)
-      .join('')}</span>`;
+    return `<span class="tag-group">${list.map((s) => {
+      const color = statusColor(s);
+      const style = color ? ` style="border-color:${escapeHtml(color)};background:${escapeHtml(color)}1f;color:${escapeHtml(color)}"` : '';
+      return `<span class="tag ${STATUS_CLASS[s] || 'gray'}"${style}>${escapeHtml(s)}</span>`;
+    }).join('')}</span>`;
+  }
+
+  // 自定义状态颜色（设置 → 状态颜色）
+  function statusColor(s) {
+    const map = (state.settings && state.settings.status_colors) || {};
+    return map[s] || '';
   }
 
   // 多值字段（状态）统一按 options 顺序规范化，保证比较与存储稳定
@@ -1085,6 +1096,7 @@ const App = (() => {
   /* ---------------- 设置 ---------------- */
   function renderSettings() {
     const s = state.settings;
+    renderStatusColors();
     const leadSel = document.getElementById('s-lead');
     leadSel.innerHTML = state.leadOptions
       .map((o) => `<option value="${o.minutes}" ${Number(s.default_lead_minutes) === o.minutes ? 'selected' : ''}>${escapeHtml(o.label)}</option>`)
@@ -1113,6 +1125,29 @@ const App = (() => {
     }).join('');
   }
 
+  /* 状态颜色编辑器 */
+  function renderStatusColors() {
+    const box = document.getElementById('status-colors');
+    if (!box) return;
+    const map = (state.settings && state.settings.status_colors) || {};
+    const statuses = (state.options && state.options.status) || fields_status();
+    box.innerHTML = statuses.map((s) => `
+      <div class="sc-row" data-status="${escapeHtml(s)}">
+        <input type="color" class="sc-input" value="${escapeHtml(map[s] || STATUS_HEX[s] || '#64748b')}" />
+        <span>${escapeHtml(s)}</span>
+        <button class="sc-reset" type="button">恢复默认</button>
+      </div>`).join('');
+    box.querySelectorAll('.sc-reset').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const row = btn.closest('.sc-row');
+        const s = row.dataset.status;
+        row.querySelector('.sc-input').value = STATUS_HEX[s] || '#64748b';
+      });
+    });
+  }
+
+  function fields_status() { return ['未开始', '进行中', '已完成', '已搁置']; }
+
   async function saveSettings() {
     const patch = {
       default_lead_minutes: Number(document.getElementById('s-lead').value),
@@ -1122,6 +1157,14 @@ const App = (() => {
       snooze_minutes: Number(document.getElementById('s-snooze').value),
       poll_seconds: Number(document.getElementById('s-poll').value),
     };
+    // 状态颜色（与默认相同则不写入）
+    const colors = {};
+    document.querySelectorAll('#status-colors .sc-row').forEach((row) => {
+      const s = row.dataset.status;
+      const v = row.querySelector('.sc-input').value;
+      if (v && v.toUpperCase() !== (STATUS_HEX[s] || '').toUpperCase()) colors[s] = v;
+    });
+    patch.status_colors = colors;
     try {
       const res = await API.saveSettings(patch);
       state.settings = res.settings;
@@ -1233,7 +1276,7 @@ const App = (() => {
       board.innerHTML = statuses.map((s) => {
         const cards = items.filter((t) => (t.status_list || []).includes(s));
         return `<div class="kanban-col" data-status="${escapeHtml(s)}">
-          <div class="kanban-col-head"><span class="k-dot" style="--dot:${KANBAN_DOTS[s] || '#94a3b8'}"></span>${escapeHtml(s)}<span class="k-count">${cards.length}</span></div>
+          <div class="kanban-col-head"><span class="k-dot" style="--dot:${statusColor(s) || KANBAN_DOTS[s] || '#94a3b8'}"></span>${escapeHtml(s)}<span class="k-count">${cards.length}</span></div>
           <div class="kanban-cards">
             ${cards.length ? cards.map((t) => `
               <div class="kanban-card${t.is_overdue ? ' is-overdue' : ''}" draggable="true" data-id="${t.id}">
@@ -1321,6 +1364,19 @@ const App = (() => {
         document.getElementById('modal').classList.add('hidden');
         document.getElementById('import-modal').classList.add('hidden');
         document.getElementById('drawer').classList.add('hidden');
+      }
+      // 快捷键：N 新建任务、/ 聚焦搜索（输入框焦点时不触发）
+      const tag = (e.target.tagName || '').toLowerCase();
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && tag !== 'input' && tag !== 'textarea' && tag !== 'select' && !e.target.isContentEditable) {
+        if (e.key === 'n' || e.key === 'N') {
+          if (document.getElementById('modal').classList.contains('hidden')) {
+            e.preventDefault();
+            document.getElementById('btn-new').click();
+          }
+        } else if (e.key === '/') {
+          e.preventDefault();
+          document.getElementById('f-q').focus();
+        }
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !document.getElementById('modal').classList.contains('hidden')) {
         submitForm();

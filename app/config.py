@@ -40,6 +40,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "done_status": "已完成",
     # 列表默认每页条数
     "page_size": 20,
+    # 自定义状态颜色（状态名 -> #RRGGBB，缺省使用前端内置配色）
+    "status_colors": {},
 }
 
 _LOCK = threading.Lock()

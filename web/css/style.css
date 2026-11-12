@@ -827,6 +827,18 @@ body.booting, body.auth-locked { overflow: hidden; }
 .kanban-card.is-overdue { border-left: 3px solid var(--danger, #dc2626); }
 .kanban-empty { font-size: 12px; color: var(--text-3); text-align: center; padding: 14px 0; }
 
+/* 状态颜色编辑 */
+.status-colors { display: flex; flex-direction: column; gap: 8px; }
+.status-colors .sc-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.status-colors .sc-row input[type="color"] {
+  width: 34px; height: 26px; padding: 0; border: 1px solid var(--border-strong);
+  border-radius: 6px; background: #fff; cursor: pointer;
+}
+.status-colors .sc-row .sc-reset {
+  border: 0; background: none; color: var(--text-3); font-size: 12px; cursor: pointer; padding: 0;
+}
+.status-colors .sc-row .sc-reset:hover { color: var(--primary); text-decoration: underline; }
+
 /* ============ 打印 / PDF 导出 ============ */
 @media print {
   body { background: #fff !important; }
