@@ -25,6 +25,17 @@ const App = (() => {
 
   const timers = [];   // 轮询定时器，退出登录时统一清理
 
+  /* ---------------- 主题（v1.6.3）：脚本加载即应用，避免闪白 ---------------- */
+  function applyTheme(mode) {
+    const dark = mode === 'dark' ||
+      (mode === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.theme = dark ? 'dark' : '';
+    const btn = document.getElementById('btn-theme');
+    if (btn) btn.textContent = dark ? '☀️' : '🌙';
+    try { localStorage.setItem('tl_theme', mode); } catch (e) { /* 忽略 */ }
+  }
+  applyTheme((() => { try { return localStorage.getItem('tl_theme') || 'light'; } catch (e) { return 'light'; } })());
+
   /* ---------------- 小工具 ---------------- */
   const $ = (sel) => document.querySelector(sel);
 
@@ -192,6 +203,11 @@ const App = (() => {
         nameHtml += `<span class="prog${doneAll ? ' full' : ''}" title="子任务进度 ${task.sub_done}/${task.sub_total}">
           <i style="width:${pct}%"></i></span>
           <span class="prog-text">${task.sub_done}/${task.sub_total}</span>`;
+      }
+      if (task.links && task.links.length) {
+        nameHtml += `<span class="t-links">${task.links.map((l) =>
+          `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener" title="${escapeHtml(l.title || l.url)}">🔗</a>`
+        ).join('')}</span>`;
       }
       return `<td ${tdAttrs(field, task, 'name-cell')}>
         <span class="name-wrap">${nameHtml}</span>
@@ -608,6 +624,55 @@ const App = (() => {
     const sync = () => { leadSel.disabled = !toggle.checked; };
     toggle.addEventListener('change', sync);
     sync();
+
+    // 文档链接编辑区（v1.6.3）
+    document.getElementById('links-editor').classList.remove('hidden');
+    renderLinkRows(task && task.links);
+  }
+
+  /* ---------------- 文档链接与变更历史（v1.6.3） ---------------- */
+  function linkRowHtml(l) {
+    l = l || {};
+    return `<div class="link-row">
+      <input class="lr-title" placeholder="标题（可选）" value="${escapeHtml(l.title || '')}" />
+      <input class="lr-url" placeholder="https:// 文档或网页地址" value="${escapeHtml(l.url || '')}" />
+      <button type="button" class="lr-del" title="删除此链接">✕</button>
+    </div>`;
+  }
+
+  function renderLinkRows(links) {
+    document.getElementById('links-rows').innerHTML =
+      (links || []).map((l) => linkRowHtml(l)).join('');
+  }
+
+  function collectLinks() {
+    return Array.from(document.querySelectorAll('#links-rows .link-row'))
+      .map((r) => ({
+        title: r.querySelector('.lr-title').value.trim(),
+        url: r.querySelector('.lr-url').value.trim(),
+      }))
+      .filter((l) => l.url);
+  }
+
+  async function renderHistory(id) {
+    const box = document.getElementById('history-box');
+    const list = document.getElementById('history-list');
+    if (!id) { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    list.innerHTML = '<div class="history-empty">加载中…</div>';
+    try {
+      const data = await API.getHistory(id);
+      const items = data.items || [];
+      list.innerHTML = items.length
+        ? items.map((h) => `<div class="history-item">
+            <span class="h-time">${escapeHtml((h.created_at || '').slice(5, 16))}</span>
+            <span class="h-action">${escapeHtml(h.action)}</span>
+            <span class="h-detail">${escapeHtml(h.detail || '')}</span>
+          </div>`).join('')
+        : '<div class="history-empty">暂无变更记录</div>';
+    } catch (e) {
+      list.innerHTML = '<div class="history-empty">历史加载失败</div>';
+    }
   }
 
   function leadText(minutes) {
@@ -641,6 +706,7 @@ const App = (() => {
     payload.remind_enabled = !!(toggle && toggle.checked);
     const leadSel = document.getElementById('lead-select');
     payload.remind_lead_minutes = leadSel && leadSel.value !== '' ? Number(leadSel.value) : null;
+    payload.links = collectLinks();
     return payload;
   }
 
@@ -651,6 +717,7 @@ const App = (() => {
         state.editingId = id;
         document.getElementById('modal-title').textContent = '编辑任务';
         buildForm(task);
+        renderHistory(id);
       } catch (err) {
         toast('读取任务失败', err.message, 'err');
         return;
@@ -663,6 +730,7 @@ const App = (() => {
         parent ? `新建子任务（父任务：${parent.name}）` : '新建任务';
       const draft = { status: '未开始', remind_enabled: true };
       buildForm(draft);
+      renderHistory(null);
     }
     document.getElementById('modal').classList.remove('hidden');
     const first = document.querySelector('#task-form input[type="text"]');
@@ -1666,10 +1734,13 @@ const App = (() => {
         }
         return;
       }
+      // 链接图标点击：直接打开，不进入内联编辑
+      if (ev.target.closest('.t-links a')) { ev.stopPropagation(); return; }
       const cell = ev.target.closest('td.editable-cell');
       if (cell && !cell.dataset.editing) startInlineEdit(cell);
     });
     tbody.addEventListener('dblclick', (ev) => {
+      if (ev.target.closest('.t-links a')) return;
       const cell = ev.target.closest('td.editable-cell');
       if (cell && !cell.dataset.editing) startInlineEdit(cell);
     });
@@ -1706,6 +1777,23 @@ const App = (() => {
       checkReminders(false);
     });
     document.getElementById('drawer-close').addEventListener('click', () => document.getElementById('drawer').classList.add('hidden'));
+
+    // 文档链接编辑（v1.6.3）
+    document.getElementById('btn-add-link').addEventListener('click', () => {
+      document.getElementById('links-rows').insertAdjacentHTML('beforeend', linkRowHtml({}));
+      const rows = document.querySelectorAll('#links-rows .link-row');
+      rows[rows.length - 1].querySelector('.lr-url').focus();
+    });
+    document.getElementById('links-rows').addEventListener('click', (ev) => {
+      const del = ev.target.closest('.lr-del');
+      if (del) del.closest('.link-row').remove();
+    });
+
+    // 主题切换（v1.6.3）
+    document.getElementById('btn-theme').addEventListener('click', () => {
+      const dark = document.documentElement.dataset.theme === 'dark';
+      applyTheme(dark ? 'light' : 'dark');
+    });
 
     // 设置
     document.getElementById('btn-save-settings').addEventListener('click', saveSettings);

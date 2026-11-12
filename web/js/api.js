@@ -59,6 +59,7 @@ const API = (() => {
 
     listTasks: (params) => request('/api/tasks?' + qs(params)),
     getTask: (id) => request(`/api/tasks/${id}`),
+    getHistory: (id) => request(`/api/tasks/${id}/history`),
     createTask: (data) => request('/api/tasks', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
     }),

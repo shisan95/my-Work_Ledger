@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from . import auth, config, crud, db, exporter, fields, ics, importer, reminders, utils
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
-APP_VERSION = "1.6.2"
+APP_VERSION = "1.6.3"
 
 # 无需登录即可访问的接口：健康检查、登录相关、日历订阅源（供系统日历直接拉取）
 PUBLIC_API_PATHS = {
@@ -300,6 +300,13 @@ def api_get_task(task_id: int):
     if not task:
         raise HTTPException(404, "任务不存在")
     return task
+
+
+@app.get("/api/tasks/{task_id}/history")
+def api_task_history(task_id: int):
+    if crud.get_raw(task_id) is None:
+        raise HTTPException(404, "任务不存在")
+    return {"items": crud.list_history(task_id)}
 
 
 @app.post("/api/tasks")

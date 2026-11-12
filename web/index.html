@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>工作任务台账</title>
-  <link rel="stylesheet" href="/css/style.css?v=1.6.2" />
+  <link rel="stylesheet" href="/css/style.css?v=1.6.3" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>" />
 </head>
 <body>
@@ -115,6 +115,7 @@
     </nav>
 
     <div class="top-actions">
+      <button class="btn icon theme-btn" id="btn-theme" title="切换浅色 / 深色主题">🌙</button>
       <button class="btn ghost" id="btn-remind" title="查看待处理提醒">
         提醒<span class="badge hidden" id="remind-badge">0</span>
       </button>
@@ -502,6 +503,17 @@
         <button class="btn icon" data-close="1" title="关闭">✕</button>
       </div>
       <form id="task-form" class="modal-body" autocomplete="off"></form>
+      <div id="links-editor" class="links-editor hidden">
+        <div class="le-head">
+          <span>相关文档链接</span>
+          <button type="button" class="btn ghost sm" id="btn-add-link">＋添加链接</button>
+        </div>
+        <div id="links-rows"></div>
+      </div>
+      <div id="history-box" class="history-box hidden">
+        <div class="le-head"><span>变更历史</span></div>
+        <div id="history-list" class="history-list"></div>
+      </div>
       <div class="modal-foot">
         <button class="btn ghost" data-close="1">取消</button>
         <button class="btn primary" id="btn-save-task">保存</button>
@@ -551,9 +563,9 @@
 
   <div class="toasts" id="toasts"></div>
 
-  <script src="/js/api.js?v=1.6.2"></script>
-  <script src="/js/session.js?v=1.6.2"></script>
-  <script src="/js/calendar.js?v=1.6.2"></script>
-  <script src="/js/app.js?v=1.6.2"></script>
+  <script src="/js/api.js?v=1.6.3"></script>
+  <script src="/js/session.js?v=1.6.3"></script>
+  <script src="/js/calendar.js?v=1.6.3"></script>
+  <script src="/js/app.js?v=1.6.3"></script>
 </body>
 </html>

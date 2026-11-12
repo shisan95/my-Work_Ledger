@@ -132,7 +132,45 @@ def task_to_dict(row: Any, settings: Dict[str, Any] | None = None) -> Dict[str, 
     }
     for k, v in extra.items():
         data[f"extra:{k}"] = v
+    # 相关文档链接（v1.6.3，存于 extra_json.links）
+    raw_links = extra.get("links")
+    data["links"] = _clean_links(raw_links) if raw_links else []
     return data
+
+
+def _clean_links(raw: Any) -> List[Dict[str, str]]:
+    """规范化文档链接列表：只保留 title/url 文本，最多 20 条。"""
+    out: List[Dict[str, str]] = []
+    if not isinstance(raw, (list, tuple)):
+        return out
+    for item in raw:
+        if isinstance(item, dict):
+            title = safe_str(item.get("title"))[:100]
+            url = safe_str(item.get("url"))[:500]
+        else:
+            url = safe_str(item)[:500]
+            title = url
+        if url:
+            out.append({"title": title or url, "url": url})
+        if len(out) >= 20:
+            break
+    return out
+
+
+# ---------------------------------------------------------------- 变更历史
+def record_history(conn: Any, task_id: int, action: str, detail: str = "") -> None:
+    conn.execute(
+        "INSERT INTO task_history(task_id, action, detail, created_at) VALUES(?,?,?,?)",
+        (task_id, action, detail, now_str()))
+
+
+def list_history(task_id: int, limit: int = 100) -> List[Dict[str, Any]]:
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            "SELECT action, detail, created_at FROM task_history WHERE task_id=? "
+            "ORDER BY id DESC LIMIT ?", (task_id, limit)).fetchall()
+    return [{"action": r["action"], "detail": r["detail"], "created_at": r["created_at"]}
+            for r in rows]
 
 
 # ---------------------------------------------------------------- 查询
@@ -347,6 +385,10 @@ def validate_task_values(
 
 def create_task(payload: Dict[str, Any]) -> Dict[str, Any]:
     core, extra = _split_payload(payload)
+    # 文档链接（数组字段，不经过 extra: 前缀）
+    links = _clean_links(payload.get("links"))
+    if links:
+        extra["links"] = links
     now = now_str()
     validate_status(core.get("status"))
     record = {
@@ -386,6 +428,7 @@ def create_task(payload: Dict[str, Any]) -> Dict[str, Any]:
     marks = ",".join("?" * len(record))
     with db._WRITE_LOCK, db.get_conn() as conn:
         cur = conn.execute(f"INSERT INTO tasks({cols}) VALUES({marks})", list(record.values()))
+        record_history(conn, cur.lastrowid, "创建任务")
         conn.commit()
         tid = cur.lastrowid
     return get_task(tid)
@@ -424,11 +467,37 @@ def update_task(task_id: int, payload: Dict[str, Any]) -> Optional[Dict[str, Any
         fields_map["reminded_at"] = safe_str(core.get("reminded_at"))
     if "snooze_until" in core:
         fields_map["snooze_until"] = safe_str(core.get("snooze_until"))
+    if "links" in payload:
+        merged_extra["links"] = _clean_links(payload.get("links"))
+        fields_map["extra_json"] = _dump(merged_extra)
     if extra:
         fields_map["extra_json"] = _dump(merged_extra)
 
     if not fields_map:
         return get_task(task_id)
+
+    # 变更历史：对比新旧值，记录被修改的字段
+    old_row = row
+    old_keys = old_row.keys()
+    labels = {
+        "name": "任务名称", "work_content": "详细工作内容", "priority": "任务划分",
+        "status": "完成状态", "start_date": "开始时间", "due_date": "截止时间",
+        "remark": "备注", "extra_json": "文档链接",
+    }
+    diffs: List[str] = []
+    for k, new_v in fields_map.items():
+        label = labels.get(k)
+        if not label:
+            continue
+        old_v = old_row[k] if k in old_keys else ""
+        if k == "extra_json":
+            if old_v != new_v:
+                diffs.append(label)
+                continue
+        old_show = str(old_v or "")[:60]
+        new_show = str(new_v or "")[:60]
+        if old_show != new_show:
+            diffs.append(f"{label}：{old_show or '(空)'} → {new_show or '(空)'}")
 
     validate_task_values(
         fields_map.get("name", row["name"]),
@@ -443,6 +512,8 @@ def update_task(task_id: int, payload: Dict[str, Any]) -> Optional[Dict[str, Any
     set_sql = ",".join(f"{k}=?" for k in fields_map)
     with db._WRITE_LOCK, db.get_conn() as conn:
         conn.execute(f"UPDATE tasks SET {set_sql} WHERE id=?", list(fields_map.values()) + [task_id])
+        if diffs:
+            record_history(conn, task_id, "修改任务", "；".join(diffs)[:1000])
         conn.commit()
     return get_task(task_id)
 
@@ -457,6 +528,7 @@ def delete_task(task_id: int) -> bool:
         conn.execute(
             "UPDATE tasks SET deleted_at=? WHERE id=? OR parent_id=?",
             (now, task_id, task_id))
+        record_history(conn, task_id, "移入回收站")
         conn.commit()
     return True
 
@@ -469,16 +541,21 @@ def restore_task(task_id: int) -> bool:
         conn.execute(
             "UPDATE tasks SET deleted_at=NULL WHERE parent_id=? AND deleted_at IS NOT NULL",
             (task_id,))
+        record_history(conn, task_id, "从回收站恢复")
         conn.commit()
     return cur.rowcount > 0
 
 
 def purge_task(task_id: int) -> bool:
-    """彻底删除（不可恢复），连同其子任务。"""
+    """彻底删除（不可恢复），连同其子任务与历史记录。"""
     with db._WRITE_LOCK, db.get_conn() as conn:
+        conn.execute(
+            "DELETE FROM task_history WHERE task_id IN (SELECT id FROM tasks WHERE parent_id=?)",
+            (task_id,))
         conn.execute("DELETE FROM tasks WHERE parent_id=?", (task_id,))
         cur = conn.execute(
             "DELETE FROM tasks WHERE id=? AND deleted_at IS NOT NULL", (task_id,))
+        conn.execute("DELETE FROM task_history WHERE task_id=?", (task_id,))
         conn.commit()
     return cur.rowcount > 0
 
@@ -513,10 +590,13 @@ def bulk_update(ids: List[int], patch: Dict[str, Any]) -> int:
     allowed["updated_at"] = now_str()
     set_sql = ",".join(f"{k}=?" for k in allowed)
     marks = ",".join("?" * len(ids))
+    desc = "、".join(f"{k}={str(v)[:40]}" for k, v in allowed.items() if k != "updated_at")
     with db._WRITE_LOCK, db.get_conn() as conn:
         cur = conn.execute(
             f"UPDATE tasks SET {set_sql} WHERE id IN ({marks})",
             list(allowed.values()) + ids)
+        for tid in ids:
+            record_history(conn, tid, "批量修改", desc)
         conn.commit()
     return cur.rowcount
 
@@ -540,16 +620,24 @@ def purge_many(ids: List[int]) -> int:
         return 0
     marks = ",".join("?" * len(ids))
     with db._WRITE_LOCK, db.get_conn() as conn:
+        conn.execute(
+            f"DELETE FROM task_history WHERE task_id IN "
+            f"(SELECT id FROM tasks WHERE parent_id IN ({marks}))", ids)
         conn.execute(f"DELETE FROM tasks WHERE parent_id IN ({marks})", ids)
         cur = conn.execute(
             f"DELETE FROM tasks WHERE id IN ({marks}) AND deleted_at IS NOT NULL", ids)
+        conn.execute(f"DELETE FROM task_history WHERE task_id IN ({marks})", ids)
         conn.commit()
     return cur.rowcount
 
 
 def empty_trash() -> int:
-    """清空回收站（彻底删除全部已软删任务）。"""
+    """清空回收站（彻底删除全部已软删任务及其历史）。"""
     with db._WRITE_LOCK, db.get_conn() as conn:
+        conn.execute(
+            "DELETE FROM task_history WHERE task_id IN "
+            "(SELECT id FROM tasks WHERE deleted_at IS NOT NULL "
+            " OR parent_id IN (SELECT id FROM tasks WHERE deleted_at IS NOT NULL))")
         cur = conn.execute("DELETE FROM tasks WHERE deleted_at IS NOT NULL")
         conn.commit()
     return cur.rowcount

@@ -43,10 +43,20 @@ CREATE TABLE IF NOT EXISTS meta (
     v TEXT NOT NULL DEFAULT ''
 );
 
+-- 变更历史（v1.6.3）：记录任务的创建/修改/删除等操作
+CREATE TABLE IF NOT EXISTS task_history (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    INTEGER NOT NULL,
+    action     TEXT NOT NULL,
+    detail     TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_due     ON tasks(due_date);
 CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_owner   ON tasks(owner);
 CREATE INDEX IF NOT EXISTS idx_tasks_start   ON tasks(start_date);
+CREATE INDEX IF NOT EXISTS idx_history_task  ON task_history(task_id);
 """
 
 _WRITE_LOCK = threading.Lock()
