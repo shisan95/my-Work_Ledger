@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>工作任务台账</title>
-  <link rel="stylesheet" href="/css/style.css?v=1.5.2" />
+  <link rel="stylesheet" href="/css/style.css?v=1.6.0" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>" />
 </head>
 <body>
@@ -108,6 +108,7 @@
 
     <nav class="tabs" id="tabs">
       <button class="tab active" data-view="list">任务列表</button>
+      <button class="tab" data-view="kanban">看板</button>
       <button class="tab" data-view="calendar">日历视图</button>
       <button class="tab" data-view="stats">统计概览</button>
       <button class="tab" data-view="settings">设置</button>
@@ -250,6 +251,12 @@
           <p class="muted">点击日历中的某一天查看任务</p>
         </div>
       </aside>
+    </section>
+
+    <!-- ===================== 看板视图 ===================== -->
+    <section class="view" id="view-kanban">
+      <p class="kanban-tip">拖动卡片到目标栏即可更新完成状态（覆盖为该栏状态）；点击卡片可编辑任务。</p>
+      <div class="kanban" id="kanban-board"></div>
     </section>
 
     <!-- ===================== 统计概览 ===================== -->
@@ -538,9 +545,9 @@
 
   <div class="toasts" id="toasts"></div>
 
-  <script src="/js/api.js?v=1.5.2"></script>
-  <script src="/js/session.js?v=1.5.2"></script>
-  <script src="/js/calendar.js?v=1.5.2"></script>
-  <script src="/js/app.js?v=1.5.2"></script>
+  <script src="/js/api.js?v=1.6.0"></script>
+  <script src="/js/session.js?v=1.6.0"></script>
+  <script src="/js/calendar.js?v=1.6.0"></script>
+  <script src="/js/app.js?v=1.6.0"></script>
 </body>
 </html>

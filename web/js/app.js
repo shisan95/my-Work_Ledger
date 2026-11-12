@@ -1219,10 +1219,80 @@ const App = (() => {
     a.remove();
   }
 
+  /* ---------------- 看板视图 ---------------- */
+  const KANBAN_DOTS = { '未开始': '#94a3b8', '进行中': '#2563eb', '已完成': '#16a34a', '已搁置': '#d97706' };
+
+  async function renderKanban() {
+    const board = document.getElementById('kanban-board');
+    if (!board) return;
+    board.innerHTML = '<div class="kanban-empty">加载中…</div>';
+    try {
+      const data = await API.listTasks({ page: 1, page_size: -1 });
+      const items = data.items || [];
+      const statuses = (state.options && state.options.status) || ['未开始', '进行中', '已完成', '已搁置'];
+      board.innerHTML = statuses.map((s) => {
+        const cards = items.filter((t) => (t.status_list || []).includes(s));
+        return `<div class="kanban-col" data-status="${escapeHtml(s)}">
+          <div class="kanban-col-head"><span class="k-dot" style="--dot:${KANBAN_DOTS[s] || '#94a3b8'}"></span>${escapeHtml(s)}<span class="k-count">${cards.length}</span></div>
+          <div class="kanban-cards">
+            ${cards.length ? cards.map((t) => `
+              <div class="kanban-card${t.is_overdue ? ' is-overdue' : ''}" draggable="true" data-id="${t.id}">
+                <div class="kc-name">${escapeHtml(t.name || '(未命名)')}</div>
+                <div class="kc-meta">
+                  ${priorityTag(t.priority)}
+                  <span class="kc-due${t.is_overdue ? ' over' : ''}">${t.due_display ? '⏰ ' + escapeHtml(t.due_display) : ''}${t.is_overdue ? ' · 已逾期' : ''}</span>
+                </div>
+              </div>`).join('') : '<div class="kanban-empty">拖卡片到这里</div>'}
+          </div>
+        </div>`;
+      }).join('');
+      bindKanban(items);
+    } catch (err) {
+      board.innerHTML = `<div class="kanban-empty">加载失败：${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function bindKanban(items) {
+    const board = document.getElementById('kanban-board');
+    let dragId = null;
+    board.querySelectorAll('.kanban-card').forEach((card) => {
+      card.addEventListener('dragstart', (ev) => {
+        dragId = Number(card.dataset.id);
+        card.classList.add('dragging');
+        ev.dataTransfer.effectAllowed = 'move';
+        try { ev.dataTransfer.setData('text/plain', String(dragId)); } catch (e) { /* 忽略 */ }
+      });
+      card.addEventListener('dragend', () => { card.classList.remove('dragging'); });
+      card.addEventListener('click', () => openTask(Number(card.dataset.id)));
+    });
+    board.querySelectorAll('.kanban-col').forEach((col) => {
+      col.addEventListener('dragover', (ev) => { ev.preventDefault(); col.classList.add('drag-over'); });
+      col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
+      col.addEventListener('drop', async (ev) => {
+        ev.preventDefault();
+        col.classList.remove('drag-over');
+        const id = dragId || Number(ev.dataTransfer.getData('text/plain'));
+        const status = col.dataset.status;
+        dragId = null;
+        if (!id || !status) return;
+        const task = (items || []).find((t) => t.id === id);
+        if (task && (task.status_list || []).length === 1 && task.status_list[0] === status) return;
+        try {
+          await API.updateTask(id, { status });
+          toast('状态已更新', `「${(task && task.name) || ''}」→ ${status}`, 'ok');
+          await loadList();
+          refreshStats();
+          renderKanban();
+        } catch (err) { toast('更新失败', err.message, 'err'); }
+      });
+    });
+  }
+
   /* ---------------- 视图切换 ---------------- */
   function switchView(name) {
     document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === name));
     document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${name}`));
+    if (name === 'kanban') renderKanban();
     if (name === 'calendar') CalendarView.render();
     if (name === 'stats') refreshStats();
     if (name === 'settings') renderSettings();
