@@ -220,6 +220,28 @@ select { cursor: pointer; max-width: 160px; }
   overflow: hidden;
 }
 
+/* 详细工作内容单元格：完整展示，行高按字数自适应（Office 表格效果） */
+.task-table td.work-cell { min-width: 280px; max-width: 460px; }
+.cell-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.cell-count {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-3);
+  background: var(--bg-soft, #f1f5f9);
+  border-radius: 4px;
+  padding: 0 6px;
+  line-height: 1.7;
+  user-select: none;
+}
+
 .tag {
   display: inline-block;
   padding: 2px 8px; border-radius: 6px;

@@ -130,8 +130,13 @@ const App = (() => {
     if (key === 'status') return `<td ${tdAttrs(field, task)}>${statusTag(task.status_list || task.status)}</td>`;
     if (key === 'priority') return `<td ${tdAttrs(field, task)}>${priorityTag(task.priority)}</td>`;
     if (key === 'work_content') {
-      if (!value) return `<td ${tdAttrs(field, task, 'remark-cell')}><span class="muted">—</span></td>`;
-      return `<td ${tdAttrs(field, task, 'remark-cell')}><div class="clamp2" title="${escapeHtml(value)}">${escapeHtml(value)}</div></td>`;
+      if (!value) return `<td ${tdAttrs(field, task, 'work-cell')}><span class="muted">—</span></td>`;
+      const text = String(value);
+      const count = text.length;
+      return `<td ${tdAttrs(field, task, 'work-cell')}>
+        <div class="cell-text">${escapeHtml(text)}</div>
+        <span class="cell-count" title="共 ${count} 字">${count} 字</span>
+      </td>`;
     }
     if (key === 'due_date') {
       if (!task.due_date) {
@@ -461,7 +466,9 @@ const App = (() => {
     } else if (field.type === 'date') {
       control = dateTimeInputs(key, value);
     } else if (field.type === 'textarea') {
-      control = `<textarea data-key="${key}"${field.maxlength ? ` maxlength="${field.maxlength}"` : ''} placeholder="${escapeHtml(field.placeholder || '')}">${escapeHtml(value || '')}</textarea>`;
+      // 按内容字数自动调整输入框行数（约 30 字/行，2~10 行）
+      const rows = Math.min(10, Math.max(2, Math.ceil(String(value || '').length / 30)));
+      control = `<textarea data-key="${key}" rows="${rows}"${field.maxlength ? ` maxlength="${field.maxlength}"` : ''} placeholder="${escapeHtml(field.placeholder || '')}">${escapeHtml(value || '')}</textarea>`;
     } else {
       control = `<input type="text" data-key="${key}" value="${escapeHtml(value || '')}"${field.maxlength ? ` maxlength="${field.maxlength}"` : ''} placeholder="${escapeHtml(field.placeholder || '')}" />`;
     }
