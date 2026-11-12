@@ -20,7 +20,7 @@ from .utils import (
 
 CORE_KEYS = {
     "name", "work_content", "owner", "priority", "status", "start_date", "due_date", "remark",
-    "remind_enabled", "remind_lead_minutes", "reminded_at", "snooze_until",
+    "remind_enabled", "remind_lead_minutes", "reminded_at", "snooze_until", "parent_id",
 }
 
 # ---------------------------------------------------------------- 多值字段
@@ -100,6 +100,7 @@ def task_to_dict(row: Any, settings: Dict[str, Any] | None = None) -> Dict[str, 
     keys = row.keys()
     content = row["work_content"] if "work_content" in keys else ""
     deleted_at = row["deleted_at"] if "deleted_at" in keys else None
+    parent_id = row["parent_id"] if "parent_id" in keys and row["parent_id"] else None
 
     data: Dict[str, Any] = {
         "id": row["id"],
@@ -120,6 +121,7 @@ def task_to_dict(row: Any, settings: Dict[str, Any] | None = None) -> Dict[str, 
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "deleted_at": deleted_at,
+        "parent_id": parent_id,
         "start_display": display_date(row["start_date"]),
         "due_display": display_date(due),
         "due_date_only": date_part(due),
@@ -143,6 +145,17 @@ def _build_where(params: Dict[str, Any]) -> Tuple[str, List[Any]]:
         clauses.append("deleted_at IS NOT NULL")
     else:
         clauses.append("deleted_at IS NULL")
+
+    # 子任务层级：
+    # - 指定 parent_id=N → 只返回该父任务的子任务
+    # - flat=1 → 全部任务平铺（回收站、导出、日历等用）
+    # - 默认 → 只返回顶层任务（列表页，子任务随后挂到父任务下）
+    pid = params.get("parent_id")
+    if pid is not None and str(pid) != "":
+        clauses.append("parent_id = ?")
+        args.append(int(pid))
+    elif not params.get("flat") and not params.get("trashed"):
+        clauses.append("parent_id IS NULL")
 
     q = (params.get("q") or "").strip()
     if q:
@@ -235,6 +248,26 @@ def list_tasks(params: Dict[str, Any]) -> Dict[str, Any]:
         ).fetchall()
 
     items = [task_to_dict(r, settings) for r in rows]
+    # 顶层列表：把各自的子任务挂到父任务上，并计算完成进度
+    if not params.get("flat") and not params.get("trashed") and (params.get("parent_id") in (None, "", 0)):
+        ids = [t["id"] for t in items]
+        if ids:
+            marks = ",".join("?" * len(ids))
+            with db.get_conn() as conn:
+                sub_rows = conn.execute(
+                    f"SELECT * FROM tasks WHERE parent_id IN ({marks}) AND deleted_at IS NULL {FIXED_ORDER}",
+                    ids,
+                ).fetchall()
+            subs: Dict[int, List[Dict[str, Any]]] = {}
+            for r in sub_rows:
+                d = task_to_dict(r, settings)
+                subs.setdefault(r["parent_id"], []).append(d)
+            for t in items:
+                children = subs.get(t["id"], [])
+                t["subtasks"] = children
+                t["sub_total"] = len(children)
+                t["sub_done"] = sum(1 for c in children if c["is_done"])
+                t["progress"] = round(t["sub_done"] / t["sub_total"] * 100) if children else None
     return {
         "items": items,
         "total": total,
@@ -253,7 +286,25 @@ def list_all(params: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
 def get_task(task_id: int) -> Optional[Dict[str, Any]]:
     with db.get_conn() as conn:
         row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
-    return task_to_dict(row) if row else None
+    if row is None:
+        return None
+    data = task_to_dict(row)
+    # 父任务：附带子任务与进度；子任务：附带父任务名
+    pid = data.get("parent_id")
+    with db.get_conn() as conn:
+        if pid:
+            parent = conn.execute("SELECT name FROM tasks WHERE id=?", (pid,)).fetchone()
+            data["parent_name"] = parent["name"] if parent else ""
+        else:
+            subs = conn.execute(
+                f"SELECT * FROM tasks WHERE parent_id=? AND deleted_at IS NULL {FIXED_ORDER}",
+                (task_id,)).fetchall()
+            children = [task_to_dict(r) for r in subs]
+            data["subtasks"] = children
+            data["sub_total"] = len(children)
+            data["sub_done"] = sum(1 for c in children if c["is_done"])
+            data["progress"] = round(data["sub_done"] / data["sub_total"] * 100) if children else None
+    return data
 
 
 def get_raw(task_id: int):
@@ -318,6 +369,19 @@ def create_task(payload: Dict[str, Any]) -> Dict[str, Any]:
         record["name"], record["work_content"], record["remark"],
         record["start_date"], record["due_date"], record["status"],
     )
+    # 子任务：校验父任务存在、未删除、且父任务本身不能是子任务（最多两级）
+    parent_id = core.get("parent_id")
+    if parent_id not in (None, "", 0):
+        with db.get_conn() as conn:
+            prow = conn.execute(
+                "SELECT parent_id, deleted_at FROM tasks WHERE id=?", (int(parent_id),)).fetchone()
+        if prow is None or prow["deleted_at"]:
+            raise ValueError("父任务不存在或已删除")
+        if prow["parent_id"]:
+            raise ValueError("只支持两级任务：不能给子任务再添加子任务")
+        record["parent_id"] = int(parent_id)
+    else:
+        record["parent_id"] = None
     cols = ",".join(record.keys())
     marks = ",".join("?" * len(record))
     with db._WRITE_LOCK, db.get_conn() as conn:
@@ -384,12 +448,15 @@ def update_task(task_id: int, payload: Dict[str, Any]) -> Optional[Dict[str, Any
 
 
 def delete_task(task_id: int) -> bool:
-    """软删除：移入回收站，可恢复。彻底删除走 purge_task。"""
+    """软删除：移入回收站（连同其子任务），可恢复。彻底删除走 purge_task。"""
     row = get_raw(task_id)
     if row is None:
         return False
+    now = now_str()
     with db._WRITE_LOCK, db.get_conn() as conn:
-        conn.execute("UPDATE tasks SET deleted_at=? WHERE id=?", (now_str(), task_id))
+        conn.execute(
+            "UPDATE tasks SET deleted_at=? WHERE id=? OR parent_id=?",
+            (now, task_id, task_id))
         conn.commit()
     return True
 
@@ -399,13 +466,17 @@ def restore_task(task_id: int) -> bool:
         cur = conn.execute(
             "UPDATE tasks SET deleted_at=NULL WHERE id=? AND deleted_at IS NOT NULL",
             (task_id,))
+        conn.execute(
+            "UPDATE tasks SET deleted_at=NULL WHERE parent_id=? AND deleted_at IS NOT NULL",
+            (task_id,))
         conn.commit()
     return cur.rowcount > 0
 
 
 def purge_task(task_id: int) -> bool:
-    """彻底删除（不可恢复）。"""
+    """彻底删除（不可恢复），连同其子任务。"""
     with db._WRITE_LOCK, db.get_conn() as conn:
+        conn.execute("DELETE FROM tasks WHERE parent_id=?", (task_id,))
         cur = conn.execute(
             "DELETE FROM tasks WHERE id=? AND deleted_at IS NOT NULL", (task_id,))
         conn.commit()
@@ -413,15 +484,16 @@ def purge_task(task_id: int) -> bool:
 
 
 def bulk_delete(ids: List[int]) -> int:
-    """批量移入回收站。"""
+    """批量移入回收站（子任务随父任务一起）。"""
     if not ids:
         return 0
     marks = ",".join("?" * len(ids))
     now = now_str()
     with db._WRITE_LOCK, db.get_conn() as conn:
         cur = conn.execute(
-            f"UPDATE tasks SET deleted_at=? WHERE id IN ({marks}) AND deleted_at IS NULL",
-            [now] + ids)
+            f"UPDATE tasks SET deleted_at=? WHERE (id IN ({marks}) OR parent_id IN ({marks})) "
+            "AND deleted_at IS NULL",
+            [now] + ids + ids)
         conn.commit()
     return cur.rowcount
 
@@ -456,6 +528,9 @@ def restore_many(ids: List[int]) -> int:
     with db._WRITE_LOCK, db.get_conn() as conn:
         cur = conn.execute(
             f"UPDATE tasks SET deleted_at=NULL WHERE id IN ({marks})", ids)
+        conn.execute(
+            f"UPDATE tasks SET deleted_at=NULL WHERE parent_id IN ({marks}) AND deleted_at IS NOT NULL",
+            ids)
         conn.commit()
     return cur.rowcount
 
@@ -465,6 +540,7 @@ def purge_many(ids: List[int]) -> int:
         return 0
     marks = ",".join("?" * len(ids))
     with db._WRITE_LOCK, db.get_conn() as conn:
+        conn.execute(f"DELETE FROM tasks WHERE parent_id IN ({marks})", ids)
         cur = conn.execute(
             f"DELETE FROM tasks WHERE id IN ({marks}) AND deleted_at IS NOT NULL", ids)
         conn.commit()

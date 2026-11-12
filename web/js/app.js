@@ -18,6 +18,7 @@ const App = (() => {
     bound: false,        // 事件是否已绑定（退出再登录不重复绑定）
     selected: new Set(), // 勾选的任务 id（批量操作）
     trashCount: 0,       // 回收站数量
+    parentDraftId: null, // 新建子任务时的父任务 id
     hiddenCols: (() => { try { return JSON.parse(localStorage.getItem('tl_hidden_cols') || '[]'); } catch (e) { return []; } })(),
     colWidths: (() => { try { return JSON.parse(localStorage.getItem('tl_colwidth') || '{}'); } catch (e) { return {}; } })(),
   };
@@ -180,8 +181,20 @@ const App = (() => {
       const flags = [];
       if (task.is_overdue) flags.push('<span class="pill red">已逾期</span>');
       if (task.is_due_soon && !task.is_overdue) flags.push('<span class="pill">即将到期</span>');
+      let nameHtml = `<span class="t-name">${escapeHtml(task.name || '(未命名)')}</span>`;
+      if (task.parent_id) {
+        // 子任务：缩进 + 层级标记
+        nameHtml = `<span class="sub-mark">└</span>${nameHtml}`;
+      } else if (task.sub_total > 0) {
+        // 父任务：子任务完成进度条
+        const pct = task.progress || 0;
+        const doneAll = pct >= 100;
+        nameHtml += `<span class="prog${doneAll ? ' full' : ''}" title="子任务进度 ${task.sub_done}/${task.sub_total}">
+          <i style="width:${pct}%"></i></span>
+          <span class="prog-text">${task.sub_done}/${task.sub_total}</span>`;
+      }
       return `<td ${tdAttrs(field, task, 'name-cell')}>
-        <span class="t-name">${escapeHtml(task.name || '(未命名)')}</span>
+        <span class="name-wrap">${nameHtml}</span>
         ${flags.length ? `<span class="t-sub">${flags.join('')}</span>` : ''}
       </td>`;
     }
@@ -221,16 +234,22 @@ const App = (() => {
   }
 
   function rowHtml(t) {
-    const cls = [t.is_overdue ? 'overdue' : '', t.is_done ? 'done' : ''].filter(Boolean).join(' ');
+    const cls = [
+      t.is_overdue ? 'overdue' : '',
+      t.is_done ? 'done' : '',
+      t.parent_id ? 'sub-row' : '',
+    ].filter(Boolean).join(' ');
+    const actions = [
+      !t.parent_id ? `<button data-act="sub" data-id="${t.id}" title="为此任务添加子任务">＋子任务</button>` : '',
+      `<button data-act="edit" data-id="${t.id}">编辑</button>`,
+      `<button data-act="done" data-id="${t.id}" title="标记完成/重开">${t.is_done ? '重开' : '完成'}</button>`,
+      `<button class="del" data-act="del" data-id="${t.id}">删除</button>`,
+    ].join('');
     return `<tr class="${cls}" data-id="${t.id}">
       <td class="col-check"><input type="checkbox" class="row-check" data-id="${t.id}" /></td>
       ${visibleListFields().map((f) => cellHtml(f, t)).join('')}
       <td>
-        <div class="row-actions">
-          <button data-act="edit" data-id="${t.id}">编辑</button>
-          <button data-act="done" data-id="${t.id}" title="标记完成/重开">${t.is_done ? '重开' : '完成'}</button>
-          <button class="del" data-act="del" data-id="${t.id}">删除</button>
-        </div>
+        <div class="row-actions">${actions}</div>
       </td>
     </tr>`;
   }
@@ -248,7 +267,10 @@ const App = (() => {
     }
     table.classList.remove('hidden');
     empty.classList.add('hidden');
-    tbody.innerHTML = items.map(rowHtml).join('');
+    // 父任务行后紧跟其子任务行（缩进展示）
+    tbody.innerHTML = items.map((t) =>
+      rowHtml(t) + (t.subtasks || []).map(rowHtml).join('')
+    ).join('');
   }
 
   /* ---------------- 单元格内联编辑 ---------------- */
@@ -257,7 +279,12 @@ const App = (() => {
   }
 
   function taskOf(id) {
-    return (state.items || []).find((t) => t.id === id);
+    for (const t of (state.items || [])) {
+      if (t.id === id) return t;
+      const sub = (t.subtasks || []).find((s) => s.id === id);
+      if (sub) return sub;
+    }
+    return null;
   }
 
   function validateInline(field, value, task) {
@@ -416,8 +443,8 @@ const App = (() => {
       if (idx >= 0) state.items[idx] = updated;
 
       state.inlineEditing = null;
-      if (field.key === 'due_date') {
-        // 截止日期影响排序与逾期高亮，整表刷新
+      if (field.key === 'due_date' || updated.parent_id) {
+        // 截止日期影响排序；子任务更新影响父任务进度 → 整表刷新
         await loadList();
       } else {
         const tr = document.querySelector(`#task-table tbody tr[data-id="${task.id}"]`);
@@ -617,7 +644,7 @@ const App = (() => {
     return payload;
   }
 
-  async function openTask(id) {
+  async function openTask(id, parentDraftId) {
     if (id) {
       try {
         const task = await API.getTask(id);
@@ -630,7 +657,10 @@ const App = (() => {
       }
     } else {
       state.editingId = null;
-      document.getElementById('modal-title').textContent = '新建任务';
+      state.parentDraftId = parentDraftId || null;
+      const parent = state.parentDraftId ? taskOf(state.parentDraftId) : null;
+      document.getElementById('modal-title').textContent =
+        parent ? `新建子任务（父任务：${parent.name}）` : '新建任务';
       const draft = { status: '未开始', remind_enabled: true };
       buildForm(draft);
     }
@@ -642,6 +672,7 @@ const App = (() => {
   function closeModal() {
     document.getElementById('modal').classList.add('hidden');
     state.editingId = null;
+    state.parentDraftId = null;
   }
 
   async function submitForm() {
@@ -657,8 +688,9 @@ const App = (() => {
         await API.updateTask(state.editingId, payload);
         toast('已保存', '任务已更新', 'ok');
       } else {
+        if (state.parentDraftId) payload.parent_id = state.parentDraftId;
         await API.createTask(payload);
-        toast('已创建', '新任务已加入台账', 'ok');
+        toast('已创建', state.parentDraftId ? '子任务已加入' : '新任务已加入台账', 'ok');
       }
       closeModal();
       await loadList();
@@ -1357,6 +1389,7 @@ const App = (() => {
         document.getElementById('modal').classList.add('hidden');
         document.getElementById('import-modal').classList.add('hidden');
         state.editingId = null;
+        state.parentDraftId = null;
       });
     });
     document.addEventListener('keydown', (e) => {
@@ -1619,6 +1652,7 @@ const App = (() => {
         const id = Number(btn.dataset.id);
         const act = btn.dataset.act;
         if (act === 'edit') openTask(id);
+        else if (act === 'sub') openTask(null, id);
         else if (act === 'del') removeTask(id);
         else if (act === 'done') {
           const task = taskOf(id);

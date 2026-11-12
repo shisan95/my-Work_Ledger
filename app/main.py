@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from . import auth, config, crud, db, exporter, fields, ics, importer, reminders, utils
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
-APP_VERSION = "1.6.1"
+APP_VERSION = "1.6.2"
 
 # 无需登录即可访问的接口：健康检查、登录相关、日历订阅源（供系统日历直接拉取）
 PUBLIC_API_PATHS = {
@@ -454,6 +454,7 @@ def api_export(
         "q": q, "owner": owner, "status": status, "priority": priority,
         "start_from": start_from, "start_to": start_to,
         "due_from": due_from, "due_to": due_to, "overdue_only": overdue_only,
+        "flat": True,   # 导出包含子任务（平铺）
     }
     tasks = crud.list_all(params)
     fmt = (format or "xlsx").lower()
