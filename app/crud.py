@@ -299,6 +299,7 @@ def list_tasks(params: Dict[str, Any]) -> Dict[str, Any]:
             subs: Dict[int, List[Dict[str, Any]]] = {}
             for r in sub_rows:
                 d = task_to_dict(r, settings)
+                d["parent_name"] = next((t["name"] for t in items if t["id"] == r["parent_id"]), "")
                 subs.setdefault(r["parent_id"], []).append(d)
             for t in items:
                 children = subs.get(t["id"], [])
@@ -514,6 +515,74 @@ def update_task(task_id: int, payload: Dict[str, Any]) -> Optional[Dict[str, Any
         conn.execute(f"UPDATE tasks SET {set_sql} WHERE id=?", list(fields_map.values()) + [task_id])
         if diffs:
             record_history(conn, task_id, "修改任务", "；".join(diffs)[:1000])
+        conn.commit()
+    return get_task(task_id)
+
+
+def set_parent(task_id: int, parent_id: Optional[Any]) -> Optional[Dict[str, Any]]:
+    """把已有任务挂到另一任务下，或移出父任务（parent_id 为空即解绑）。
+
+    约束（v1.7.0）：
+    1. 不能把任务设为自己的子任务；
+    2. 目标父任务必须存在、未删除，且本身是顶层任务 —— 全库最多两级；
+    3. 待挂载任务不能已有子任务，否则会形成三级结构；
+    4. 沿父链回溯做防御性循环检测（正常流程下前两条已排除）。
+    """
+    row = get_raw(task_id)
+    if row is None or row["deleted_at"]:
+        return None
+
+    pid = None if parent_id in (None, "", 0, "0") else int(parent_id)
+
+    # 解绑：回到顶层
+    if pid is None:
+        if row["parent_id"] is None:
+            return get_task(task_id)
+        with db._WRITE_LOCK, db.get_conn() as conn:
+            conn.execute(
+                "UPDATE tasks SET parent_id=NULL, updated_at=? WHERE id=?",
+                (now_str(), task_id))
+            record_history(conn, task_id, "移出子任务")
+            conn.commit()
+        return get_task(task_id)
+
+    if pid == task_id:
+        raise ValueError("不能把任务设为自己的子任务")
+
+    with db.get_conn() as conn:
+        prow = conn.execute(
+            "SELECT id, name, parent_id, deleted_at FROM tasks WHERE id=?", (pid,)).fetchone()
+        child_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM tasks WHERE parent_id=? AND deleted_at IS NULL",
+            (task_id,)).fetchone()["c"]
+
+    if prow is None or prow["deleted_at"]:
+        raise ValueError("目标父任务不存在或已删除")
+    if prow["parent_id"]:
+        raise ValueError("目标任务本身是子任务，最多只支持两级层级")
+    if child_count:
+        raise ValueError(f"该任务下还有 {child_count} 个子任务，不能再作为其他任务的子任务")
+
+    # 防御性循环检测：沿目标父任务向上回溯，命中自身即拒绝
+    seen = {task_id}
+    cursor: Optional[int] = pid
+    while cursor:
+        if cursor in seen:
+            raise ValueError("父子关系会形成循环，已阻止本次操作")
+        seen.add(cursor)
+        with db.get_conn() as conn:
+            link = conn.execute(
+                "SELECT parent_id FROM tasks WHERE id=?", (cursor,)).fetchone()
+        cursor = link["parent_id"] if link else None
+
+    if row["parent_id"] == pid:
+        return get_task(task_id)
+
+    with db._WRITE_LOCK, db.get_conn() as conn:
+        conn.execute(
+            "UPDATE tasks SET parent_id=?, updated_at=? WHERE id=?",
+            (pid, now_str(), task_id))
+        record_history(conn, task_id, f"设为「{prow['name']}」的子任务")
         conn.commit()
     return get_task(task_id)
 

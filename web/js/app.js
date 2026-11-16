@@ -19,6 +19,9 @@ const App = (() => {
     selected: new Set(), // 勾选的任务 id（批量操作）
     trashCount: 0,       // 回收站数量
     parentDraftId: null, // 新建子任务时的父任务 id
+    expanded: new Set(),      // 已展开详情的任务 id（v1.7.0）
+    contentOpen: new Set(),   // 详情中长文本已展开的任务 id（v1.7.0）
+    attachTargetId: null,     // 正在选择父任务的任务 id（v1.7.0）
     hiddenCols: (() => { try { return JSON.parse(localStorage.getItem('tl_hidden_cols') || '[]'); } catch (e) { return []; } })(),
     colWidths: (() => { try { return JSON.parse(localStorage.getItem('tl_colwidth') || '{}'); } catch (e) { return {}; } })(),
   };
@@ -131,7 +134,7 @@ const App = (() => {
           : `style="min-width:${f.width || 110}px"`;
         return `<th data-key="${f.key}"${editable} ${style}>${escapeHtml(f.label)}</th>`;
       }),
-      '<th style="width:120px;text-align:right">操作</th>',
+      '<th style="width:150px;text-align:right">操作</th>',
     ];
     document.querySelector('#task-table thead').innerHTML = `<tr>${ths.join('')}</tr>`;
 
@@ -192,7 +195,9 @@ const App = (() => {
       const flags = [];
       if (task.is_overdue) flags.push('<span class="pill red">已逾期</span>');
       if (task.is_due_soon && !task.is_overdue) flags.push('<span class="pill">即将到期</span>');
-      let nameHtml = `<span class="t-name">${escapeHtml(task.name || '(未命名)')}</span>`;
+      const open = state.expanded.has(task.id);
+      let nameHtml = `<span class="t-name" title="点击展开/收起任务详情，双击可修改名称">` +
+        `<i class="t-caret">${open ? '▾' : '\u25B8'}</i>${escapeHtml(task.name || '(未命名)')}</span>`;
       if (task.parent_id) {
         // 子任务：缩进 + 层级标记
         nameHtml = `<span class="sub-mark">└</span>${nameHtml}`;
@@ -256,7 +261,10 @@ const App = (() => {
       t.parent_id ? 'sub-row' : '',
     ].filter(Boolean).join(' ');
     const actions = [
-      !t.parent_id ? `<button data-act="sub" data-id="${t.id}" title="为此任务添加子任务">＋子任务</button>` : '',
+      !t.parent_id ? `<button data-act="sub" data-id="${t.id}" title="为此任务新建一条子任务">＋子任务</button>` : '',
+      !t.parent_id
+        ? `<button data-act="attach" data-id="${t.id}" title="把已有任务挂到本任务下作为子任务">\u21B3</button>`
+        : `<button data-act="detach" data-id="${t.id}" title="移出子任务，恢复为顶层任务">\u21B1</button>`,
       `<button data-act="edit" data-id="${t.id}">编辑</button>`,
       `<button data-act="done" data-id="${t.id}" title="标记完成/重开">${t.is_done ? '重开' : '完成'}</button>`,
       `<button class="del" data-act="del" data-id="${t.id}">删除</button>`,
@@ -268,6 +276,120 @@ const App = (() => {
         <div class="row-actions">${actions}</div>
       </td>
     </tr>`;
+  }
+
+  /* ---------------- 任务详情行（v1.7.0）：点击任务名展开 ---------------- */
+  const DETAIL_CLAMP_CHARS = 240;   // 超过该字数/行数时默认折叠，可手动展开
+
+  function detailRowHtml(t) {
+    const content = String(t.work_content || '');
+    const lineCount = content ? content.split('\n').length : 0;
+    const longText = content.length > DETAIL_CLAMP_CHARS || lineCount > 6;
+    const opened = state.contentOpen.has(t.id);
+    const colspan = visibleListFields().length + 2;
+
+    const contentBlock = content
+      ? `<div class="detail-content${longText && !opened ? ' clamped' : ''}">${escapeHtml(content)}</div>
+         ${longText ? `<button type="button" class="detail-more" data-act="toggle-content" data-id="${t.id}">${
+           opened ? '收起内容' : `展开全文（共 ${content.length} 字）`}</button>` : ''}`
+      : '<div class="detail-empty">未填写详细工作内容</div>';
+
+    const remarkBlock = t.remark
+      ? `<div class="detail-content">${escapeHtml(t.remark)}</div>`
+      : '<div class="detail-empty">—</div>';
+
+    const meta = [
+      ['任务划分', t.priority || '—'],
+      ['完成状态', (t.status_list || []).join('、') || '—'],
+      ['开始时间', t.start_display || '—'],
+      ['结束时间', t.due_display || '—'],
+      ['创建时间', (t.created_at || '').slice(0, 16) || '—'],
+      ['更新时间', (t.updated_at || '').slice(0, 16) || '—'],
+    ].map(([k, v]) => `<div class="dm-item"><span class="dm-k">${escapeHtml(k)}</span><span class="dm-v">${escapeHtml(v)}</span></div>`).join('');
+
+    const subs = t.subtasks || [];
+    const subBlock = subs.length
+      ? `<div class="detail-sec">
+          <div class="detail-label">子任务<span class="detail-count">完成 ${t.sub_done || 0}/${subs.length}</span></div>
+          <div class="detail-subs">${subs.map((s) =>
+            `<span class="detail-sub${s.is_done ? ' done' : ''}">${escapeHtml(s.name || '(未命名)')}</span>`).join('')}</div>
+        </div>`
+      : '';
+
+    const links = t.links || [];
+    const linkBlock = links.length
+      ? `<div class="detail-sec">
+          <div class="detail-label">关联文档<span class="detail-count">${links.length}</span></div>
+          <div class="detail-links">${links.map((l) =>
+            `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">${escapeHtml(l.title || l.url)}</a>`).join('')}</div>
+        </div>`
+      : '';
+
+    return `<tr class="detail-row" data-detail-for="${t.id}">
+      <td colspan="${colspan}">
+        <div class="detail-box">
+          ${t.parent_id ? `<div class="detail-parent">所属父任务：<b>${escapeHtml(t.parent_name || `#${t.parent_id}`)}</b></div>` : ''}
+          <div class="detail-sec">
+            <div class="detail-label">详细工作内容<span class="detail-count">${content.length} 字</span></div>
+            ${contentBlock}
+          </div>
+          <div class="detail-sec">
+            <div class="detail-label">备注</div>
+            ${remarkBlock}
+          </div>
+          <div class="detail-meta">${meta}</div>
+          ${subBlock}
+          ${linkBlock}
+          <div class="row-actions detail-actions">
+            <button data-act="edit" data-id="${t.id}">编辑任务</button>
+            ${t.parent_id
+              ? `<button data-act="detach" data-id="${t.id}">移出子任务</button>`
+              : `<button data-act="attach" data-id="${t.id}">把已有任务设为本任务子任务</button>
+                 <button data-act="sub" data-id="${t.id}">＋新建子任务</button>`}
+          </div>
+        </div>
+      </td>
+    </tr>`;
+  }
+
+  // 展开/收起详情行：直接插入或移除，避免整表重绘
+  function toggleDetail(id) {
+    const tr = document.querySelector(`#task-table tbody tr[data-id="${id}"]`);
+    const task = taskOf(id);
+    if (!tr || !task) return;
+    const caret = tr.querySelector('.t-caret');
+    const exist = document.querySelector(`#task-table tbody tr.detail-row[data-detail-for="${id}"]`);
+    if (exist) {
+      exist.remove();
+      state.expanded.delete(id);
+      if (caret) caret.textContent = '\u25B8';
+    } else {
+      tr.insertAdjacentHTML('afterend', detailRowHtml(task));
+      state.expanded.add(id);
+      if (caret) caret.textContent = '\u25BE';
+    }
+  }
+
+  // 长文本折叠/展开：只重绘当前详情行
+  function toggleDetailContent(id) {
+    const task = taskOf(id);
+    const row = document.querySelector(`#task-table tbody tr.detail-row[data-detail-for="${id}"]`);
+    if (!task || !row) return;
+    if (state.contentOpen.has(id)) state.contentOpen.delete(id);
+    else state.contentOpen.add(id);
+    const tpl = document.createElement('template');
+    tpl.innerHTML = `<table><tbody>${detailRowHtml(task)}</tbody></table>`;
+    row.replaceWith(tpl.content.querySelector('tr'));
+  }
+
+  function rowBlockHtml(t) {
+    let html = rowHtml(t);
+    if (state.expanded.has(t.id)) html += detailRowHtml(t);
+    (t.subtasks || []).forEach((s) => {
+      html += rowHtml(s);
+      if (state.expanded.has(s.id)) html += detailRowHtml(s);
+    });
+    return html;
   }
 
   function renderRows(items) {
@@ -283,10 +405,8 @@ const App = (() => {
     }
     table.classList.remove('hidden');
     empty.classList.add('hidden');
-    // 父任务行后紧跟其子任务行（缩进展示）
-    tbody.innerHTML = items.map((t) =>
-      rowHtml(t) + (t.subtasks || []).map(rowHtml).join('')
-    ).join('');
+    // 父任务行后紧跟其子任务行（缩进展示），已展开的任务附带详情行
+    tbody.innerHTML = items.map(rowBlockHtml).join('');
   }
 
   /* ---------------- 单元格内联编辑 ---------------- */
@@ -1036,6 +1156,76 @@ const App = (() => {
     }
   }
 
+  /* ---------------- 父子层级：设为子任务 / 移出（v1.7.0） ---------------- */
+  async function openAttachPicker(taskId) {
+    const task = taskOf(taskId);
+    state.attachTargetId = taskId;
+    document.getElementById('parent-title').textContent =
+      `把「${task ? task.name || '(未命名)' : ''}」设为子任务`;
+    document.getElementById('parent-search').value = '';
+    document.getElementById('parent-modal').classList.remove('hidden');
+    await renderParentCandidates('');
+    setTimeout(() => document.getElementById('parent-search').focus(), 60);
+  }
+
+  function closeAttachPicker() {
+    document.getElementById('parent-modal').classList.add('hidden');
+    state.attachTargetId = null;
+  }
+
+  async function renderParentCandidates(keyword) {
+    const box = document.getElementById('parent-list');
+    const targetId = state.attachTargetId;
+    box.innerHTML = '<div class="detail-empty">加载中…</div>';
+    try {
+      const data = await API.listTasks({ page: 1, page_size: -1 });
+      const kw = String(keyword || '').trim().toLowerCase();
+      const items = (data.items || []).filter((t) =>
+        t.id !== targetId && (!kw || String(t.name || '').toLowerCase().includes(kw)));
+      box.innerHTML = items.length ? items.map((t) => `
+        <button type="button" class="parent-item" data-parent-id="${t.id}">
+          <span class="pi-name">${escapeHtml(t.name || '(未命名)')}</span>
+          <span class="pi-meta">${t.sub_total ? `现有子任务 ${t.sub_total}` : (t.due_display || '无截止日期')}</span>
+        </button>`).join('') : '<div class="detail-empty">没有可作为父任务的任务</div>';
+    } catch (err) {
+      box.innerHTML = `<div class="detail-empty">加载失败：${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async function attachToParent(parentId) {
+    const childId = state.attachTargetId;
+    if (!childId || !parentId) return;
+    try {
+      await API.setParent(childId, parentId);
+      const parent = taskOf(parentId);
+      toast('已设为子任务', `已挂到「${parent ? parent.name : '#' + parentId}」下`, 'ok');
+      closeAttachPicker();
+      await loadList();
+      refreshStats();
+    } catch (err) {
+      toast('设置失败', err.message, 'err');
+    }
+  }
+
+  async function detachTask(taskId) {
+    const task = taskOf(taskId);
+    const ok = await UI.confirm({
+      title: '移出子任务',
+      message: `确定把「${task ? task.name || '(未命名)' : ''}」移出父任务、恢复为顶层任务吗？`,
+      hint: '任务内容与子任务关系不受影响，仅解除父子层级。',
+      okText: '移出',
+    });
+    if (!ok) return;
+    try {
+      await API.setParent(taskId, null);
+      toast('已移出', '任务已恢复为顶层任务', 'ok');
+      await loadList();
+      refreshStats();
+    } catch (err) {
+      toast('操作失败', err.message, 'err');
+    }
+  }
+
   /* ---------------- 筛选下拉 ---------------- */
   function fillSelect(sel, values, placeholder, current) {
     const el = typeof sel === 'string' ? document.querySelector(sel) : sel;
@@ -1711,8 +1901,9 @@ const App = (() => {
       } catch (err) { toast('操作失败', err.message, 'err'); }
     });
 
-    // 列表事件委托：行内操作按钮 + 单元格内联编辑（点击或双击进入编辑态）
+    // 列表事件委托：行内操作按钮 + 任务名展开 + 单元格内联编辑
     const tbody = document.querySelector('#task-table tbody');
+    let nameTimer = null;   // 单击展开与双击改名的冲突消解
     tbody.addEventListener('click', (ev) => {
       const btn = ev.target.closest('.row-actions button');
       if (btn) {
@@ -1721,6 +1912,9 @@ const App = (() => {
         const act = btn.dataset.act;
         if (act === 'edit') openTask(id);
         else if (act === 'sub') openTask(null, id);
+        else if (act === 'attach') openAttachPicker(id);
+        else if (act === 'detach') detachTask(id);
+        else if (act === 'toggle-content') toggleDetailContent(id);
         else if (act === 'del') removeTask(id);
         else if (act === 'done') {
           const task = taskOf(id);
@@ -1734,15 +1928,32 @@ const App = (() => {
         }
         return;
       }
+      // 详情行「展开全文 / 收起内容」按钮（不在 .row-actions 内，单独处理）
+      const moreBtn = ev.target.closest('button[data-act="toggle-content"]');
+      if (moreBtn) {
+        ev.preventDefault();
+        toggleDetailContent(Number(moreBtn.dataset.id));
+        return;
+      }
       // 链接图标点击：直接打开，不进入内联编辑
       if (ev.target.closest('.t-links a')) { ev.stopPropagation(); return; }
+      // 任务名：单击展开/收起详情（延迟 220ms，双击时取消）
+      const nameCell = ev.target.closest('td.name-cell');
+      if (nameCell && !nameCell.dataset.editing) {
+        const id = Number(nameCell.dataset.id);
+        clearTimeout(nameTimer);
+        nameTimer = setTimeout(() => toggleDetail(id), 220);
+        return;
+      }
       const cell = ev.target.closest('td.editable-cell');
       if (cell && !cell.dataset.editing) startInlineEdit(cell);
     });
     tbody.addEventListener('dblclick', (ev) => {
       if (ev.target.closest('.t-links a')) return;
       const cell = ev.target.closest('td.editable-cell');
-      if (cell && !cell.dataset.editing) startInlineEdit(cell);
+      if (!cell || cell.dataset.editing) return;
+      clearTimeout(nameTimer);   // 双击改名：取消单击展开
+      startInlineEdit(cell);
     });
 
     // 导入导出
@@ -1794,6 +2005,22 @@ const App = (() => {
       const dark = document.documentElement.dataset.theme === 'dark';
       applyTheme(dark ? 'light' : 'dark');
     });
+
+    // 父任务选择弹窗（v1.7.0）
+    document.querySelectorAll('[data-parent-close]').forEach((el) => {
+      el.addEventListener('click', closeAttachPicker);
+    });
+    const parentSearch = document.getElementById('parent-search');
+    if (parentSearch) {
+      parentSearch.addEventListener('input', (e) => renderParentCandidates(e.target.value));
+    }
+    const parentList = document.getElementById('parent-list');
+    if (parentList) {
+      parentList.addEventListener('click', (ev) => {
+        const item = ev.target.closest('.parent-item');
+        if (item) attachToParent(Number(item.dataset.parentId));
+      });
+    }
 
     // 设置
     document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
@@ -1910,7 +2137,7 @@ const App = (() => {
     state.editingId = null;
     state.page = 1;
     state.total = 0;
-    ['modal', 'import-modal', 'confirm-modal', 'pwd-modal', 'drawer', 'user-dropdown']
+    ['modal', 'import-modal', 'confirm-modal', 'pwd-modal', 'parent-modal', 'drawer', 'user-dropdown']
       .forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');
