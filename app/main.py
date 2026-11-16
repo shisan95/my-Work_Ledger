@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from . import auth, config, crud, db, exporter, fields, ics, importer, reminders, utils
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.7.1"
 
 # 无需登录即可访问的接口：健康检查、登录相关、日历订阅源（供系统日历直接拉取）
 PUBLIC_API_PATHS = {
@@ -331,13 +331,10 @@ async def api_update_task(task_id: int, payload: Dict[str, Any]):
     return task
 
 
-@app.post("/api/tasks/{task_id}/parent")
-async def api_set_task_parent(task_id: int, payload: Dict[str, Any]):
-    """把任务挂到另一任务下，或移出父任务（parent_id 传 null/0 表示解绑）。"""
-    try:
-        task = crud.set_parent(task_id, payload.get("parent_id"))
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
+@app.post("/api/tasks/{task_id}/detach")
+def api_detach_task(task_id: int):
+    """把子任务移出父任务，恢复为顶层任务。"""
+    task = crud.detach_task(task_id)
     if not task:
         raise HTTPException(404, "任务不存在")
     _refresh_ics()

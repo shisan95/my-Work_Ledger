@@ -21,7 +21,6 @@ const App = (() => {
     parentDraftId: null, // 新建子任务时的父任务 id
     expanded: new Set(),      // 已展开详情的任务 id（v1.7.0）
     contentOpen: new Set(),   // 详情中长文本已展开的任务 id（v1.7.0）
-    attachTargetId: null,     // 正在选择父任务的任务 id（v1.7.0）
     hiddenCols: (() => { try { return JSON.parse(localStorage.getItem('tl_hidden_cols') || '[]'); } catch (e) { return []; } })(),
     colWidths: (() => { try { return JSON.parse(localStorage.getItem('tl_colwidth') || '{}'); } catch (e) { return {}; } })(),
   };
@@ -262,9 +261,9 @@ const App = (() => {
     ].filter(Boolean).join(' ');
     const actions = [
       !t.parent_id ? `<button data-act="sub" data-id="${t.id}" title="为此任务新建一条子任务">＋子任务</button>` : '',
-      !t.parent_id
-        ? `<button data-act="attach" data-id="${t.id}" title="把已有任务挂到本任务下作为子任务">\u21B3</button>`
-        : `<button data-act="detach" data-id="${t.id}" title="移出子任务，恢复为顶层任务">\u21B1</button>`,
+      t.parent_id
+        ? `<button data-act="detach" data-id="${t.id}" title="移出子任务，恢复为顶层任务">\u21B1</button>`
+        : '',
       `<button data-act="edit" data-id="${t.id}">编辑</button>`,
       `<button data-act="done" data-id="${t.id}" title="标记完成/重开">${t.is_done ? '重开' : '完成'}</button>`,
       `<button class="del" data-act="del" data-id="${t.id}">删除</button>`,
@@ -344,8 +343,7 @@ const App = (() => {
             <button data-act="edit" data-id="${t.id}">编辑任务</button>
             ${t.parent_id
               ? `<button data-act="detach" data-id="${t.id}">移出子任务</button>`
-              : `<button data-act="attach" data-id="${t.id}">把已有任务设为本任务子任务</button>
-                 <button data-act="sub" data-id="${t.id}">＋新建子任务</button>`}
+              : `<button data-act="sub" data-id="${t.id}">＋新建子任务</button>`}
           </div>
         </div>
       </td>
@@ -1156,57 +1154,7 @@ const App = (() => {
     }
   }
 
-  /* ---------------- 父子层级：设为子任务 / 移出（v1.7.0） ---------------- */
-  async function openAttachPicker(taskId) {
-    const task = taskOf(taskId);
-    state.attachTargetId = taskId;
-    document.getElementById('parent-title').textContent =
-      `把「${task ? task.name || '(未命名)' : ''}」设为子任务`;
-    document.getElementById('parent-search').value = '';
-    document.getElementById('parent-modal').classList.remove('hidden');
-    await renderParentCandidates('');
-    setTimeout(() => document.getElementById('parent-search').focus(), 60);
-  }
-
-  function closeAttachPicker() {
-    document.getElementById('parent-modal').classList.add('hidden');
-    state.attachTargetId = null;
-  }
-
-  async function renderParentCandidates(keyword) {
-    const box = document.getElementById('parent-list');
-    const targetId = state.attachTargetId;
-    box.innerHTML = '<div class="detail-empty">加载中…</div>';
-    try {
-      const data = await API.listTasks({ page: 1, page_size: -1 });
-      const kw = String(keyword || '').trim().toLowerCase();
-      const items = (data.items || []).filter((t) =>
-        t.id !== targetId && (!kw || String(t.name || '').toLowerCase().includes(kw)));
-      box.innerHTML = items.length ? items.map((t) => `
-        <button type="button" class="parent-item" data-parent-id="${t.id}">
-          <span class="pi-name">${escapeHtml(t.name || '(未命名)')}</span>
-          <span class="pi-meta">${t.sub_total ? `现有子任务 ${t.sub_total}` : (t.due_display || '无截止日期')}</span>
-        </button>`).join('') : '<div class="detail-empty">没有可作为父任务的任务</div>';
-    } catch (err) {
-      box.innerHTML = `<div class="detail-empty">加载失败：${escapeHtml(err.message)}</div>`;
-    }
-  }
-
-  async function attachToParent(parentId) {
-    const childId = state.attachTargetId;
-    if (!childId || !parentId) return;
-    try {
-      await API.setParent(childId, parentId);
-      const parent = taskOf(parentId);
-      toast('已设为子任务', `已挂到「${parent ? parent.name : '#' + parentId}」下`, 'ok');
-      closeAttachPicker();
-      await loadList();
-      refreshStats();
-    } catch (err) {
-      toast('设置失败', err.message, 'err');
-    }
-  }
-
+  /* ---------------- 父子层级：移出子任务 ---------------- */
   async function detachTask(taskId) {
     const task = taskOf(taskId);
     const ok = await UI.confirm({
@@ -1217,7 +1165,7 @@ const App = (() => {
     });
     if (!ok) return;
     try {
-      await API.setParent(taskId, null);
+      await API.detachTask(taskId);
       toast('已移出', '任务已恢复为顶层任务', 'ok');
       await loadList();
       refreshStats();
@@ -1912,7 +1860,6 @@ const App = (() => {
         const act = btn.dataset.act;
         if (act === 'edit') openTask(id);
         else if (act === 'sub') openTask(null, id);
-        else if (act === 'attach') openAttachPicker(id);
         else if (act === 'detach') detachTask(id);
         else if (act === 'toggle-content') toggleDetailContent(id);
         else if (act === 'del') removeTask(id);
@@ -2005,22 +1952,6 @@ const App = (() => {
       const dark = document.documentElement.dataset.theme === 'dark';
       applyTheme(dark ? 'light' : 'dark');
     });
-
-    // 父任务选择弹窗（v1.7.0）
-    document.querySelectorAll('[data-parent-close]').forEach((el) => {
-      el.addEventListener('click', closeAttachPicker);
-    });
-    const parentSearch = document.getElementById('parent-search');
-    if (parentSearch) {
-      parentSearch.addEventListener('input', (e) => renderParentCandidates(e.target.value));
-    }
-    const parentList = document.getElementById('parent-list');
-    if (parentList) {
-      parentList.addEventListener('click', (ev) => {
-        const item = ev.target.closest('.parent-item');
-        if (item) attachToParent(Number(item.dataset.parentId));
-      });
-    }
 
     // 设置
     document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
@@ -2137,7 +2068,7 @@ const App = (() => {
     state.editingId = null;
     state.page = 1;
     state.total = 0;
-    ['modal', 'import-modal', 'confirm-modal', 'pwd-modal', 'parent-modal', 'drawer', 'user-dropdown']
+    ['modal', 'import-modal', 'confirm-modal', 'pwd-modal', 'drawer', 'user-dropdown']
       .forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');

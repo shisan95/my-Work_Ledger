@@ -67,10 +67,7 @@ const API = (() => {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
     }),
     deleteTask: (id, hard) => request(`/api/tasks/${id}${hard ? '?hard=1' : ''}`, { method: 'DELETE' }),
-    setParent: (id, parentId) => request(`/api/tasks/${id}/parent`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ parent_id: parentId }),
-    }),
+    detachTask: (id) => request(`/api/tasks/${id}/detach`, { method: 'POST' }),
     bulkDelete: (ids) => request('/api/tasks/bulk-delete', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
     }),
