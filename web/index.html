@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>工作任务台账</title>
-  <link rel="stylesheet" href="/css/style.css?v=1.7.1" />
+  <link rel="stylesheet" href="/css/style.css?v=1.7.2" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>" />
 </head>
 <body>
@@ -24,7 +24,7 @@
         </div>
       </div>
     </div>
-    <p class="splash-foot">v<span id="splash-version">1.7.1</span></p>
+    <p class="splash-foot">v<span id="splash-version">1.7.2</span></p>
   </div>
 
   <!-- ===================== 登录 / 首次创建账号 ===================== -->
@@ -400,6 +400,26 @@
     </div>
   </div>
 
+  <!-- ===================== 长文本宽幅编辑浮层 ===================== -->
+  <div class="rich-mask hidden" id="rich-edit-mask">
+    <div class="rich-box">
+      <div class="rich-head">
+        <h2 id="rich-edit-title">编辑内容</h2>
+        <button class="btn icon" id="rich-edit-close" title="关闭（取消）">✕</button>
+      </div>
+      <div class="rich-body">
+        <textarea id="rich-edit-area" class="rich-area" spellcheck="false"
+          placeholder="在此输入完整内容，可自由换行…"></textarea>
+      </div>
+      <div class="rich-foot">
+        <span class="rich-hint">Enter 换行 · Ctrl/⌘+Enter 保存 · Esc 取消</span>
+        <span class="rich-count" id="rich-edit-count">0 字</span>
+        <button class="btn ghost" id="rich-edit-cancel">取消</button>
+        <button class="btn primary" id="rich-edit-save">保存</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===================== 批量操作条 ===================== -->
   <div class="bulk-bar hidden" id="bulk-bar">
     <span>已选 <b id="bulk-count">0</b> 条</span>
@@ -563,9 +583,9 @@
 
   <div class="toasts" id="toasts"></div>
 
-  <script src="/js/api.js?v=1.7.1"></script>
-  <script src="/js/session.js?v=1.7.1"></script>
-  <script src="/js/calendar.js?v=1.7.1"></script>
-  <script src="/js/app.js?v=1.7.1"></script>
+  <script src="/js/api.js?v=1.7.2"></script>
+  <script src="/js/session.js?v=1.7.2"></script>
+  <script src="/js/calendar.js?v=1.7.2"></script>
+  <script src="/js/app.js?v=1.7.2"></script>
 </body>
 </html>

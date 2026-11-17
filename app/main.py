@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from . import auth, config, crud, db, exporter, fields, ics, importer, reminders, utils
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
-APP_VERSION = "1.7.1"
+APP_VERSION = "1.7.2"
 
 # 无需登录即可访问的接口：健康检查、登录相关、日历订阅源（供系统日历直接拉取）
 PUBLIC_API_PATHS = {

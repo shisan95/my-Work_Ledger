@@ -20,7 +20,6 @@ const App = (() => {
     trashCount: 0,       // 回收站数量
     parentDraftId: null, // 新建子任务时的父任务 id
     expanded: new Set(),      // 已展开详情的任务 id（v1.7.0）
-    contentOpen: new Set(),   // 详情中长文本已展开的任务 id（v1.7.0）
     hiddenCols: (() => { try { return JSON.parse(localStorage.getItem('tl_hidden_cols') || '[]'); } catch (e) { return []; } })(),
     colWidths: (() => { try { return JSON.parse(localStorage.getItem('tl_colwidth') || '{}'); } catch (e) { return {}; } })(),
   };
@@ -278,19 +277,12 @@ const App = (() => {
   }
 
   /* ---------------- 任务详情行（v1.7.0）：点击任务名展开 ---------------- */
-  const DETAIL_CLAMP_CHARS = 240;   // 超过该字数/行数时默认折叠，可手动展开
-
   function detailRowHtml(t) {
     const content = String(t.work_content || '');
-    const lineCount = content ? content.split('\n').length : 0;
-    const longText = content.length > DETAIL_CLAMP_CHARS || lineCount > 6;
-    const opened = state.contentOpen.has(t.id);
     const colspan = visibleListFields().length + 2;
 
     const contentBlock = content
-      ? `<div class="detail-content${longText && !opened ? ' clamped' : ''}">${escapeHtml(content)}</div>
-         ${longText ? `<button type="button" class="detail-more" data-act="toggle-content" data-id="${t.id}">${
-           opened ? '收起内容' : `展开全文（共 ${content.length} 字）`}</button>` : ''}`
+      ? `<div class="detail-content">${escapeHtml(content)}</div>`
       : '<div class="detail-empty">未填写详细工作内容</div>';
 
     const remarkBlock = t.remark
@@ -368,18 +360,6 @@ const App = (() => {
     }
   }
 
-  // 长文本折叠/展开：只重绘当前详情行
-  function toggleDetailContent(id) {
-    const task = taskOf(id);
-    const row = document.querySelector(`#task-table tbody tr.detail-row[data-detail-for="${id}"]`);
-    if (!task || !row) return;
-    if (state.contentOpen.has(id)) state.contentOpen.delete(id);
-    else state.contentOpen.add(id);
-    const tpl = document.createElement('template');
-    tpl.innerHTML = `<table><tbody>${detailRowHtml(task)}</tbody></table>`;
-    row.replaceWith(tpl.content.querySelector('tr'));
-  }
-
   function rowBlockHtml(t) {
     let html = rowHtml(t);
     if (state.expanded.has(t.id)) html += detailRowHtml(t);
@@ -453,6 +433,79 @@ const App = (() => {
     state.inlineEditing = null;
   }
 
+  /* ---------------- 长文本宽幅编辑浮层（v1.7.2） ---------------- */
+  function openRichEdit(td, task, field) {
+    const mask = document.getElementById('rich-edit-mask');
+    const area = document.getElementById('rich-edit-area');
+    const title = document.getElementById('rich-edit-title');
+    const count = document.getElementById('rich-edit-count');
+    if (!mask || !area) return;
+
+    const original = task[field.key] == null ? '' : String(task[field.key]);
+    title.textContent = `编辑${field.label}`;
+    area.value = original;
+    if (field.maxlength) area.maxLength = field.maxlength;
+    count.textContent = `${area.value.length} 字`;
+    td.classList.add('editing');
+    td.dataset.editing = '1';
+    state.inlineEditing = { id: task.id, key: field.key, el: td, original, rich: true };
+    mask.classList.remove('hidden');
+
+    // 高度随内容自适应，最低 180px、最高 62vh（超出时框内滚动，内容不丢失）
+    const fit = () => {
+      area.style.height = 'auto';
+      const h = Math.max(180, Math.min(area.scrollHeight + 4,
+        Math.round(window.innerHeight * 0.62)));
+      area.style.height = h + 'px';
+    };
+    fit();
+    requestAnimationFrame(() => {
+      area.focus();
+      area.setSelectionRange(area.value.length, area.value.length);
+    });
+
+    let done = false;
+    let cleanup = () => {};
+    const finish = async (save) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      mask.classList.add('hidden');
+      if (!save) {
+        state.inlineEditing = null;
+        restoreCell(td, task, field);
+        toast('已取消', `${field.label}保持原值`, '');
+        return;
+      }
+      await commitInlineEdit(task, field, area.value, td);
+    };
+
+    const onInput = () => { count.textContent = `${area.value.length} 字`; fit(); };
+    const onKey = (ev) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+      else if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); finish(true); }
+      // 普通 Enter 保留换行，不再触发保存
+    };
+    const onMaskClick = (ev) => { if (ev.target === mask) finish(false); };
+    const saveBtn = document.getElementById('rich-edit-save');
+    const cancelBtn = document.getElementById('rich-edit-cancel');
+    const closeBtn = document.getElementById('rich-edit-close');
+    area.addEventListener('input', onInput);
+    area.addEventListener('keydown', onKey);
+    mask.addEventListener('click', onMaskClick);
+    cleanup = () => {
+      area.removeEventListener('input', onInput);
+      area.removeEventListener('keydown', onKey);
+      mask.removeEventListener('click', onMaskClick);
+      saveBtn.onclick = null;
+      cancelBtn.onclick = null;
+      closeBtn.onclick = null;
+    };
+    saveBtn.onclick = () => finish(true);
+    cancelBtn.onclick = () => finish(false);
+    closeBtn.onclick = () => finish(false);
+  }
+
   function startInlineEdit(td) {
     if (state.inlineEditing || state.editingId) return;
     const id = Number(td.dataset.id);
@@ -460,6 +513,8 @@ const App = (() => {
     const task = taskOf(id);
     const field = fieldOf(key);
     if (!task || !field) return;
+    // 长文本字段在窄单元格里编辑会被列宽限制成「小条」，改用宽幅浮层编辑器
+    if (field.type === 'textarea') { openRichEdit(td, task, field); return; }
 
     const original = task[key] == null ? '' : String(task[key]);
     const multi = field.type === 'multiselect';
@@ -1861,7 +1916,6 @@ const App = (() => {
         if (act === 'edit') openTask(id);
         else if (act === 'sub') openTask(null, id);
         else if (act === 'detach') detachTask(id);
-        else if (act === 'toggle-content') toggleDetailContent(id);
         else if (act === 'del') removeTask(id);
         else if (act === 'done') {
           const task = taskOf(id);
@@ -1873,13 +1927,6 @@ const App = (() => {
           savePatch(id, { status: next })
             .then(() => toast('状态已更新', `当前状态：${next.join('、') || '未设置'}`, 'ok'));
         }
-        return;
-      }
-      // 详情行「展开全文 / 收起内容」按钮（不在 .row-actions 内，单独处理）
-      const moreBtn = ev.target.closest('button[data-act="toggle-content"]');
-      if (moreBtn) {
-        ev.preventDefault();
-        toggleDetailContent(Number(moreBtn.dataset.id));
         return;
       }
       // 链接图标点击：直接打开，不进入内联编辑
@@ -2068,7 +2115,7 @@ const App = (() => {
     state.editingId = null;
     state.page = 1;
     state.total = 0;
-    ['modal', 'import-modal', 'confirm-modal', 'pwd-modal', 'drawer', 'user-dropdown']
+    ['modal', 'import-modal', 'confirm-modal', 'pwd-modal', 'rich-edit-mask', 'drawer', 'user-dropdown']
       .forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');

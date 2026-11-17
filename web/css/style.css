@@ -842,6 +842,44 @@ body.booting, body.auth-locked { overflow: hidden; }
 .status-colors .sc-row .sc-reset:hover { color: var(--primary); text-decoration: underline; }
 
 /* ============ 打印 / PDF 导出 ============ */
+/* ============ 长文本宽幅编辑浮层（v1.7.2） ============ */
+.rich-mask {
+  position: fixed; inset: 0; z-index: 130;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: rgba(15, 23, 42, .5);
+}
+.rich-mask.hidden { display: none; }
+.rich-box {
+  width: min(880px, 94vw); max-height: 88vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
+}
+.rich-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 13px 18px; border-bottom: 1px solid var(--border);
+}
+.rich-head h2 { margin: 0; font-size: 15.5px; color: var(--text); }
+.rich-body { padding: 16px 18px 8px; min-height: 0; }
+.rich-area {
+  display: block; width: 100%; box-sizing: border-box;
+  padding: 12px 14px; border: 1px solid var(--primary); border-radius: 8px;
+  background: var(--card); color: var(--text);
+  font-family: inherit; font-size: 14px; line-height: 1.75;
+  outline: none; resize: vertical; overflow: auto;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.rich-area:focus { box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); }
+.rich-foot {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 18px 16px; border-top: 1px solid var(--border);
+}
+.rich-hint { margin-right: auto; font-size: 12px; color: var(--text-3, #64748b); }
+.rich-count {
+  font-size: 12px; color: var(--text-2); background: var(--bg-soft);
+  border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px;
+}
+
 @media print {
   body { background: #fff !important; }
   header.app-header, .toolbar, .bulk-bar, .toasts, .drawer,
@@ -849,6 +887,7 @@ body.booting, body.auth-locked { overflow: hidden; }
   .modal, .filter-pop, #view-calendar, #view-stats, #view-settings,
   .cell-count { display: none !important; }
   .detail-row, .t-caret { display: none !important; }
+  .rich-mask { display: none !important; }
   main { padding: 0 !important; }
   #view-list { display: block !important; }
   .table-card { box-shadow: none !important; border: 1px solid #ccc !important; overflow: visible !important; }
@@ -933,16 +972,6 @@ tr.sub-row td.name-cell { padding-left: 36px; }
   white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
   max-width: 920px;
 }
-.detail-content.clamped {
-  max-height: 8.5em; overflow: hidden;
-  -webkit-mask-image: linear-gradient(180deg, #000 68%, transparent 100%);
-  mask-image: linear-gradient(180deg, #000 68%, transparent 100%);
-}
-.detail-more {
-  margin-top: 6px; border: none; background: transparent; padding: 0;
-  color: var(--primary); font-size: 12.5px; cursor: pointer;
-}
-.detail-more:hover { text-decoration: underline; }
 .detail-empty { font-size: 13px; color: var(--muted); }
 .detail-meta {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
