@@ -23,19 +23,29 @@ fail()   { osascript -e "display dialog \"$1\" with title \"任务台账启动�
 
 [ -f "$PROJECT/start.py" ] || fail "未找到 start.py。请将 TaskLedger.app 保留在项目目录内，或设置环境变量 TASK_LEDGER_HOME 指向项目目录。"
 
-health() { curl -sm 1 "$URL/api/ping" >/dev/null 2>&1; }
+# 真正健康：ping 通且账号可读（initialized:true）；
+# 首次启动时 auth.json 不存在，initialized:false 属正常，也视为健康。
+# 若 auth.json 存在但服务报 initialized:false → “假活”进程（休眠后常见），需清理重启，
+# 否则用户打开页面登录会报 500。
+healthy() {
+  local r
+  r="$(curl -sm 2 "$URL/api/ping" 2>/dev/null)" || return 1
+  echo "$r" | grep -q '"initialized":true' && return 0
+  [ ! -f "$PROJECT/data/auth.json" ] && return 0
+  return 1
+}
 
 # ---- 已在运行：直接打开浏览器，不再重复启动 ----
-if health; then
+if healthy; then
   open "$URL"
   notify "服务运行中，已在浏览器打开 $URL"
   exit 0
 fi
 
-# ---- 端口被占但服务无响应：清理僵死进程（上次异常退出可能留下孤儿进程）----
+# ---- 端口被占但服务异常（无响应 / 假活如休眠后账号读不到）：清理并重启 ----
 STALE_PIDS="$(lsof -ti tcp:$PORT -sTCP:LISTEN 2>/dev/null)"
 if [ -n "$STALE_PIDS" ]; then
-  notify "检测到僵死进程，正在自动清理…"
+  notify "检测到异常服务进程，正在自动清理并重启…"
   # 顺带清理过期的 PID 文件
   OLD_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
   [ -n "$OLD_PID" ] && [ "$OLD_PID" != "$$" ] && kill "$OLD_PID" 2>/dev/null
@@ -70,7 +80,7 @@ disown 2>/dev/null || true
 
 # ---- 等待健康检查通过（最多 30 秒）----
 for _ in $(seq 1 60); do
-  if health; then
+  if healthy; then
     open "$URL"
     notify "服务已启动：$URL"
     exit 0
