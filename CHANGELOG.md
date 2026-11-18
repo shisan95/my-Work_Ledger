@@ -1,3 +1,9 @@
+## 启动器修复 2（2026-11-18 晚）—— 彻底根治假死：清除沙盒环境变量
+
+- **真正根因**：此前服务由 AI 工具（WorkBuddy）的后台任务启动时，进程继承了沙盒注入的 `PYTHONPATH`（指向 `sandbox-center-runtime-kit/shim`），Python 因此加载沙盒 shim；运行一段时间后（或会话/授权变化）文件访问受限，读不到 `data/auth.json`，表现为 `initialized:false`、登录报 500。这与“休眠”只是时间上的巧合
+- **修复**：`TaskLedger.app` 启动器在启动时 `unset PYTHONPATH BASH_ENV PYTHONDONTWRITEBYTECODE PYTHONIOENCODING PYTHONUTF8`，兜底保证无论从何种环境启动，服务进程都使用干净的 Python，不再加载沙盒 shim
+- 配合上午的 `healthy()` 假活识别与自动清理，形成双重保障：假活会被识别并重启，重启后环境干净不会再退化
+
 ## 启动器修复（2026-11-18）—— 休眠后“假活”服务导致登录 500
 
 - **问题**：电脑长时间休眠后，可能残留一个端口仍在监听、`/api/ping` 返回 200 但 `initialized:false`（账号文件读不到）的“假活”服务进程。旧启动器仅凭 ping 200 判定服务健康，直接打开浏览器，用户登录时报错 500

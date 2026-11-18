@@ -6,6 +6,11 @@
 #   TASK_LEDGER_HOST   监听地址（默认 127.0.0.1）
 set -u
 
+# 清除可能继承的 AI 工具沙盒环境变量：若从沙盒化的终端/自动化工具启动，
+# 这些变量会让 Python 加载沙盒 shim，导致进程运行一段时间后读不到本地账号文件
+# （表现为 initialized:false、登录报 500）。双击 .app 时通常无这些变量，此处做兜底。
+unset PYTHONPATH BASH_ENV PYTHONDONTWRITEBYTECODE PYTHONIOENCODING PYTHONUTF8 2>/dev/null || true
+
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"          # .../TaskLedger.app/Contents/MacOS
 BUNDLE_DIR="$(dirname "$(dirname "$SELF_DIR")")"   # .../TaskLedger.app
 PROJECT="${TASK_LEDGER_HOME:-$(dirname "$BUNDLE_DIR")}"
