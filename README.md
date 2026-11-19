@@ -1,5 +1,9 @@
 # 工作任务台账管理软件
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#三安装与启动)
+
 一个开箱即用的本地任务台账系统：按表格列自动生成数据结构与表单，支持任务的增删改查、
 筛选排序、日历联动、到期提醒与逾期高亮、本地持久化与 Excel/CSV 批量导入导出。
 
@@ -114,7 +118,7 @@ python3 -m venv .venv
 - 界面操作：任务列表 →「导入表格」→ 拖入表格文件 → 确认列映射 → 开始导入；
 - 命令行：`.venv/bin/python scripts/import_xlsx.py "/path/任务汇总.xlsx"`。
 
-> 当前 `data/tasks.db` 已预置《任务汇总》中的 102 条任务。
+> 全新克隆运行时数据库为空，请按上述方式导入自己的表格文件。
 
 ---
 
@@ -163,3 +167,12 @@ python3 -m venv .venv
 - 备份保留最近 10 份，位于 `data/backups/`；
 - **隐私说明**：`data/` 目录（数据库、设置、备份、日历文件）已在 `.gitignore` 中排除，
   不会随代码提交到版本库；`data/` 目录在程序启动时自动创建。
+
+---
+
+## 八、开源与贡献
+
+- **许可证**：[MIT](LICENSE) — 可自由使用、修改与分发，包括商业用途，需保留版权声明。
+- **贡献指南**：参见 [CONTRIBUTING.md](CONTRIBUTING.md)，包含开发环境、验证方式与提交约定。
+- **安全说明**：参见 [SECURITY.md](SECURITY.md)，包含安全边界与漏洞反馈渠道；请勿在公开 Issue 中披露漏洞细节。
+- **更新记录**：各版本变更详见 [CHANGELOG.md](CHANGELOG.md)。

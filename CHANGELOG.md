@@ -1,3 +1,11 @@
+## 开源配置（2026-11-19）
+
+- 新增 MIT 许可证（LICENSE），明确使用与分发条款
+- 新增 CONTRIBUTING.md（开发环境、验证方式、提交约定）与 SECURITY.md（安全边界与漏洞反馈渠道）
+- README 增加许可证/平台标识与「开源与贡献」章节，移除「预置 102 条任务」的本地数据描述，改为说明新克隆为空库需自行导入
+- .gitignore 增加 .env / *.pem / *.key 预防性规则
+- GitHub 仓库 shisan95/my-Work_Ledger 设为 Public，补充中文描述与 9 个 Topics
+
 ## 启动器修复 2（2026-11-18 晚）—— 彻底根治假死：清除沙盒环境变量
 
 - **真正根因**：此前服务由 AI 工具（WorkBuddy）的后台任务启动时，进程继承了沙盒注入的 `PYTHONPATH`（指向 `sandbox-center-runtime-kit/shim`），Python 因此加载沙盒 shim；运行一段时间后（或会话/授权变化）文件访问受限，读不到 `data/auth.json`，表现为 `initialized:false`、登录报 500。这与“休眠”只是时间上的巧合
